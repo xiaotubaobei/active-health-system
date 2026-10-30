@@ -1,0 +1,43 @@
+{
+  "library": "medical",
+  "source": "申请书表11医疗运动处方（骨架）",
+  "exercises": [
+    {"id": "walk_interval", "name": "间歇步行", "category": "有氧康复", "default_sets": 1, "default_reps": 20, "unit": "min"},
+    {"id": "chair_squat", "name": "椅子辅助深蹲", "category": "下肢康复", "default_sets": 2, "default_reps": 8},
+    {"id": "shoulder_mobility", "name": "肩关节活动度", "category": "关节", "default_sets": 2, "default_reps": 10},
+    {"id": "breathing", "name": "呼吸训练", "category": "呼吸", "default_sets": 2, "default_reps": 5, "unit": "min"},
+    {"id": "core_safe", "name": "安全核心激活", "category": "核心", "default_sets": 2, "default_reps": 20, "unit": "sec"}
+  ],
+  "templates": [
+    {
+      "id": "med_cardio_risk",
+      "name": "心血管风险医疗处方",
+      "age_group": "middle_age",
+      "goal": "medical",
+      "chronic_tags": ["cardio_risk"],
+      "mode": "低冲击有氧",
+      "intensity": "低",
+      "frequency": "3次/周",
+      "duration": "25分钟",
+      "cycle": "4周",
+      "volume": "低",
+      "progression": "需医师确认后进阶",
+      "exercise_ids": ["walk_interval", "breathing", "chair_squat"]
+    },
+    {
+      "id": "med_joint_care",
+      "name": "关节保健医疗处方",
+      "age_group": "elder",
+      "goal": "medical",
+      "chronic_tags": ["joint"],
+      "mode": "关节活动+肌力",
+      "intensity": "低",
+      "frequency": "3次/周",
+      "duration": "25分钟",
+      "cycle": "6周",
+      "volume": "低",
+      "progression": "疼痛评估后调整",
+      "exercise_ids": ["shoulder_mobility", "chair_squat", "core_safe", "breathing"]
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "library": "fitness",
+  "source": "申请书表10健身运动处方（骨架，动作按课题扩展）",
+  "exercises": [
+    {"id": "squat", "name": "深蹲", "category": "力量", "default_sets": 3, "default_reps": 12},
+    {"id": "lunge", "name": "弓步/交叉步", "category": "力量", "default_sets": 3, "default_reps": 10},
+    {"id": "plank", "name": "平板支撑", "category": "核心", "default_sets": 3, "default_reps": 30, "unit": "sec"},
+    {"id": "jumping_jack", "name": "开合跳", "category": "有氧", "default_sets": 3, "default_reps": 20},
+    {"id": "yoga_flow", "name": "瑜伽基础体式", "category": "柔韧", "default_sets": 1, "default_reps": 15, "unit": "min"},
+    {"id": "pushup", "name": "俯卧撑", "category": "力量", "default_sets": 3, "default_reps": 10},
+    {"id": "bridge", "name": "臀桥", "category": "力量", "default_sets": 3, "default_reps": 12},
+    {"id": "rope_skip", "name": "跳绳", "category": "有氧", "default_sets": 3, "default_reps": 60, "unit": "sec"},
+    {"id": "balance_stand", "name": "单脚站立", "category": "平衡", "default_sets": 3, "default_reps": 20, "unit": "sec"}
+  ],
+  "templates": [
+    {
+      "id": "fit_youth_basic",
+      "name": "青少年基础健身",
+      "age_group": "youth",
+      "goal": "fitness",
+      "mode": "综合训练",
+      "intensity": "低-中",
+      "frequency": "3次/周",
+      "duration": "40分钟",
+      "cycle": "4周",
+      "volume": "中等",
+      "progression": "每两周组数+1",
+      "exercise_ids": ["jumping_jack", "squat", "plank", "rope_skip"]
+    },
+    {
+      "id": "fit_adult_fatloss",
+      "name": "中年减脂健身",
+      "age_group": "middle_age",
+      "goal": "fitness",
+      "mode": "有氧+力量",
+      "intensity": "中",
+      "frequency": "4次/周",
+      "duration": "45分钟",
+      "cycle": "6周",
+      "volume": "中高",
+      "progression": "有氧时长每周+5分钟",
+      "exercise_ids": ["jumping_jack", "squat", "lunge", "plank", "bridge"]
+    },
+    {
+      "id": "fit_elder_balance",
+      "name": "老年平衡柔韧",
+      "age_group": "elder",
+      "goal": "fitness",
+      "mode": "平衡+柔韧",
+      "intensity": "低",
+      "frequency": "3次/周",
+      "duration": "30分钟",
+      "cycle": "8周",
+      "volume": "低",
+      "progression": "静力时长渐进",
+      "exercise_ids": ["balance_stand", "yoga_flow", "bridge", "plank"]
+    }
+  ]
+}

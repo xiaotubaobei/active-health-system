@@ -1,0 +1,168 @@
+:root {
+  --bg: #f3f6f4;
+  --panel: #ffffff;
+  --ink: #1c2b24;
+  --muted: #5c6f66;
+  --accent: #1f7a5c;
+  --line: #d7e3dc;
+  --warn: #b45309;
+  --bad: #b42318;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: linear-gradient(160deg, #e8f2ec 0%, #f7f4ee 45%, #eef3f8 100%);
+  color: var(--ink);
+}
+a { color: inherit; text-decoration: none; }
+.layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+.side {
+  background: #14352c;
+  color: #e8fff5;
+  padding: 24px 16px;
+}
+.side h1 { font-size: 18px; margin: 0 0 8px; line-height: 1.4; }
+.side p { margin: 0 0 20px; color: #9fd9c2; font-size: 12px; }
+.side a {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  color: #d7f3e8;
+  cursor: pointer;
+}
+.side a.router-link-active { background: rgba(255,255,255,.12); }
+.main { padding: 28px; max-width: 1100px; }
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 8px 24px rgba(20,53,44,.04);
+}
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.grid-2 { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
+input, select, button, textarea {
+  font: inherit;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+button.secondary { background: #4a6358; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.muted { color: var(--muted); }
+.ok { color: var(--accent); font-weight: 600; }
+.warn { color: var(--warn); }
+.err { color: var(--bad); }
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e5f5ee;
+  color: #1f7a5c;
+  font-size: 12px;
+  margin-right: 4px;
+}
+.tag.gray { background: #eef1f0; color: #4a6358; }
+.tag.on { background: #1f7a5c; color: #fff; }
+.stat {
+  min-width: 120px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f4faf7;
+  border: 1px solid var(--line);
+}
+.stat b { display: block; font-size: 22px; color: var(--accent); }
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 16px;
+}
+.steps span {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eef1f0;
+  color: #4a6358;
+}
+.steps span.on { background: #1f7a5c; color: #fff; }
+.ex-list { list-style: none; padding: 0; margin: 0; }
+.ex-list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.score-bar {
+  height: 10px;
+  background: #e7eee9;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 8px 0 16px;
+}
+.score-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #2a9d6a, #1f7a5c);
+}
+.cam-wrap {
+  position: relative;
+  background: #0f241e;
+  border-radius: 12px;
+  overflow: hidden;
+  min-height: 280px;
+}
+/* 摄像头：画面画在 canvas 上，video 隐藏 */
+.cam-wrap:not(.offline-play) video {
+  width: 100%;
+  opacity: 0;
+  position: absolute;
+  inset: 0;
+}
+.cam-wrap:not(.offline-play) canvas {
+  position: relative;
+  width: 100%;
+  display: block;
+  min-height: 280px;
+}
+/* 离线：原生视频可播放，骨架叠在上层 */
+.cam-wrap.offline-play video {
+  position: relative;
+  width: 100%;
+  display: block;
+  opacity: 1;
+  background: #000;
+  min-height: 280px;
+}
+.cam-wrap.offline-play canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* 点击穿透到底下 video 控件 */
+  display: block;
+}
+.hint { font-size: 13px; color: #d7f3e8; padding: 10px 12px; }
+.tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.tpl {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  background: #fafcfb;
+}
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .side { position: sticky; top: 0; z-index: 2; }
+}

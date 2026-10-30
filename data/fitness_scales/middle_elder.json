@@ -1,0 +1,13 @@
+{
+  "id": "middle_elder",
+  "name": "中年/老年体适能评测",
+  "source": "申请书表9（骨架）",
+  "items": [
+    {"key": "bmi", "name": "身体形态BMI/皮褶", "weight": 15, "max_score": 100},
+    {"key": "strength", "name": "肌肉力量与耐力", "weight": 20, "max_score": 100},
+    {"key": "flexibility", "name": "柔韧性", "weight": 15, "max_score": 100},
+    {"key": "balance", "name": "平衡能力", "weight": 20, "max_score": 100},
+    {"key": "coordination", "name": "协调性", "weight": 15, "max_score": 100},
+    {"key": "daily_activity", "name": "日常活动水平", "weight": 15, "max_score": 100}
+  ]
+}

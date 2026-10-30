@@ -1,0 +1,14 @@
+{
+  "id": "youth",
+  "name": "青少年体适能评测",
+  "source": "申请书表8（骨架权重）",
+  "items": [
+    {"key": "bmi", "name": "体重指数BMI", "weight": 15, "max_score": 100},
+    {"key": "vital_capacity", "name": "肺活量", "weight": 15, "max_score": 100},
+    {"key": "run_50m", "name": "50米跑", "weight": 20, "max_score": 100},
+    {"key": "sit_reach", "name": "坐立体前屈", "weight": 15, "max_score": 100},
+    {"key": "rope_skip", "name": "1分钟跳绳", "weight": 15, "max_score": 100},
+    {"key": "situp", "name": "1分钟仰卧起坐", "weight": 10, "max_score": 100},
+    {"key": "long_jump", "name": "立定跳远", "weight": 10, "max_score": 100}
+  ]
+}

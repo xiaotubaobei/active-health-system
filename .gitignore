@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+frontend/dist/
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/venv/
+**/.pytest_cache/
+**/.mypy_cache/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+**/secrets/
+
+# Local DB & runtime
+*.db
+*.sqlite
+*.sqlite3
+active_health.db
+uploads/*
+!uploads/.gitkeep
+
+# Large datasets / demo media (download separately)
+data/datasets/
+data/demo_videos/
+data/external_datasets/
+data/exercise_video_datasets/
+data/exercise_video_benchmark/
+**/huggingface/
+**/.cache/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build / logs
+*.log
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+
+# PDF extract junk / local notes (optional keep docs)
+_pdf_figs/
+_pdf_extract.txt
