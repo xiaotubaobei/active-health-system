@@ -38,7 +38,8 @@ async def complete_session(db: Session, session_id: int, body: SessionFinishIn, 
         raise HTTPException(409, "当前会话不能结束")
 
     pose = body.pose_summary or session.pose_summary or {}
-    payload = {"video_path": body.video_path, "exercise_name": session.exercise_name}
+    video_path = body.video_path or session.video_path or ""
+    payload = {"video_path": video_path, "exercise_name": session.exercise_name}
     # 等待外部服务期间不占用数据库写锁。
     tasks, cot = await asyncio.gather(
         ai_client.behavior_all(payload),
@@ -63,7 +64,7 @@ async def complete_session(db: Session, session_id: int, body: SessionFinishIn, 
             raise HTTPException(409, "训练正在归档，请稍后重试")
 
         session.status = "finished"
-        session.video_path = body.video_path
+        session.video_path = video_path
         session.pose_summary = pose
         session.finished_at = datetime.utcnow()
         report = BehaviorReport(

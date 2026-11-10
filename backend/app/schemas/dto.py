@@ -61,10 +61,12 @@ class SessionStartIn(BaseModel):
     exercise_id: str
     exercise_name: str = ""
     prescription_id: int = 0
+    video_path: str = ""
+    pose_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class SessionFinishIn(BaseModel):
-    video_path: str = "uploads/mock_session.mp4"
+    video_path: str = ""
     pose_summary: dict[str, Any] = Field(default_factory=dict)
 
 

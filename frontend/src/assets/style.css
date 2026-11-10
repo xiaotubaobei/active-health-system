@@ -22,6 +22,8 @@ a { color: inherit; text-decoration: none; }
   color: #e8fff5;
   padding: 24px 16px;
 }
+.nav-toggle { display: none; }
+.main { min-width: 0; }
 .side h1 { font-size: 18px; margin: 0 0 8px; line-height: 1.4; }
 .side p { margin: 0 0 20px; color: #9fd9c2; font-size: 12px; }
 .side a {
@@ -164,5 +166,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }
   .grid-2 { grid-template-columns: 1fr; }
-  .side { position: sticky; top: 0; z-index: 2; }
+  .side { position: static; padding: 16px; }
+  .side p { margin-bottom: 12px; }
+  .nav-toggle { display: inline-block; }
+  .side nav { display: none; }
+  .side nav.open { display: block; margin-top: 12px; }
+  .main { padding: 16px; }
 }

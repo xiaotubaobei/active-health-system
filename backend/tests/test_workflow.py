@@ -207,3 +207,59 @@ def test_fresh_demo_creates_only_initial_template(client, store):
         assert db.query(Prescription).count() == 1
         assert db.query(FitnessAssessment).count() == db.query(FitnessBaseline).count() == 0
         assert db.query(BehaviorReport).count() == db.query(KbEntry).count() == 2
+
+
+def test_resume_saved_input_cancel_and_ownership(client, store, onboard):
+    result, _ = onboard()
+    other, _ = onboard("other-user")
+    uid = result["user"]["id"]
+    pose = {"source": "offline_video", "sequences": {"coco17": {"frames": [{"t_ms": 0}]}}}
+    response = client.post("/sessions/start", json={"user_id": uid, "exercise_id": "squat",
+        "video_path": "uploads/real.mp4", "pose_summary": pose})
+    sid = response.json()["session"]["id"]
+    assert client.get(f"/sessions/{sid}", params={"user_id": uid}).json()["session"]["pose_summary"] == pose
+    foreign = {"user_id": other["user"]["id"]}
+    assert client.get(f"/sessions/{sid}", params=foreign).status_code == 404
+    assert client.put(f"/sessions/{sid}/draft", params=foreign, json={}).status_code == 404
+    assert client.post(f"/sessions/{sid}/cancel", params=foreign).status_code == 404
+    pose["sequences"]["coco17"]["frames"].append({"t_ms": 100})
+    assert client.put(f"/sessions/{sid}/draft", params={"user_id": uid}, json={
+        "video_path": "uploads/replaced.mp4", "pose_summary": pose}).status_code == 200
+    # Empty finish after a reload must use the durable saved input.
+    finished = client.post(f"/sessions/{sid}/finish", json={}).json()
+    assert finished["session"]["video_path"] == "uploads/replaced.mp4"
+    assert finished["session"]["pose_summary"] == pose
+    assert client.post(f"/sessions/{sid}/cancel", params={"user_id": uid}).status_code == 409
+    assert client.put(f"/sessions/{sid}/draft", params={"user_id": uid}, json={}).status_code == 409
+    sid = start(client, result)
+    for _ in range(2):
+        assert client.post(f"/sessions/{sid}/cancel", params={"user_id": uid}).json()["session"]["status"] == "cancelled"
+    assert client.post(f"/sessions/{sid}/finish", json={}).status_code == 409
+    with store[1]() as db:
+        assert db.query(BehaviorReport).count() == db.query(KbEntry).count() == 1
+
+
+def test_paginated_history_filters_and_scores_outside_summary_window(client, onboard):
+    result, _ = onboard()
+    uid = result["user"]["id"]
+    for i in range(23):
+        sid = start(client, result)
+        client.post(f"/sessions/{sid}/finish", json={})
+    pending = client.post("/sessions/start", json={"user_id": uid, "exercise_id": "squat", "exercise_name": "another squat label"}).json()["session"]["id"]
+    cancelled = client.post("/sessions/start", json={"user_id": uid, "exercise_id": "walk", "exercise_name": "walking"}).json()["session"]["id"]
+    client.post(f"/sessions/{cancelled}/cancel", params={"user_id": uid})
+    url = f"/users/{uid}/sessions/page"
+    page = client.get(url, params={"page": 3, "page_size": 10}).json()
+    assert page["total"] == 25 and len(page["items"]) == 5
+    assert all(item["analysis"]["status"] == "demo" for item in page["items"])
+    assert all(item["analysis"]["score"] is None for item in page["items"])
+    assert client.get(url, params={"status": "running"}).json()["items"][0]["id"] == pending
+    filtered = client.get(url, params={"status": "cancelled", "exercise_id": "walk"}).json()
+    assert filtered["total"] == 1 and filtered["items"][0]["id"] == cancelled
+    assert {e["id"] for e in filtered["exercises"]} == {"squat", "walk"}
+    assert len(filtered["exercises"]) == 2
+    assert client.get(url, params={"page": 99}).json()["items"] == []
+    assert client.get(url, params={"page": 0}).status_code == 422
+    assert client.get(url, params={"status": "invalid"}).status_code == 422
+    assert client.get("/users/99999/sessions/page").status_code == 404
+    assert isinstance(client.get(f"/users/{uid}/sessions").json(), list)

@@ -3,6 +3,9 @@
   <div class="card">
 
     <h2>运动中监测</h2>
+    <p v-if="session" class="muted">训练 #{{ session.id }} 已保存。刷新或离开后，可从训练历史继续。</p>
+    <p v-if="savedPayload" class="ok">已恢复原训练及保存的姿态数据，可直接结束生成报告。视频预览需重新选择文件；摄像头需重新打开。</p>
+    <router-link to="/history">查看训练历史 / 找回未完成训练</router-link>
 
     <p class="muted">
 
@@ -22,7 +25,7 @@
 
       </select>
 
-      <select v-model="exerciseId" :disabled="!!session">
+      <select v-model="exerciseId" :disabled="!!session || busy">
 
         <option v-for="e in exercises" :key="e.id" :value="e.id">{{ e.name }}</option>
 
@@ -92,6 +95,7 @@
       <button @click="start" :disabled="!!session || busy || !canStart">开始会话</button>
 
       <button class="secondary" @click="finish" :disabled="!session || busy">结束并生成报告</button>
+      <button class="secondary" v-if="session" @click="cancelSession" :disabled="busy">取消本次训练</button>
 
     </div>
 
@@ -192,9 +196,9 @@
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
-import api, { getUser } from "../api/client";
+import api, { errorMessage, getUser } from "../api/client";
 
 import { createPoseCamera } from "../composables/usePoseCamera";
 
@@ -218,6 +222,8 @@ import {
 const user = getUser();
 
 const router = useRouter();
+const route = useRoute();
+const savedPayload = ref(null);
 
 const exercises = ref([]);
 
@@ -327,7 +333,7 @@ const err = ref("");
 
 const poseHint = ref("");
 
-const busy = ref(false);
+const busy = ref(true);
 
 const demoVideos = ref([]);
 
@@ -497,6 +503,7 @@ const canStart = computed(() => {
 
 
 onMounted(async () => {
+  try {
 
   const { data } = await api.get("/prescriptions/templates");
 
@@ -567,9 +574,55 @@ onMounted(async () => {
     }
   }
 
+  await restoreSession();
+  } catch (e) { err.value = errorMessage(e, "训练页面读取失败，请刷新重试"); }
+  finally { busy.value = false; }
 });
 
+async function restoreSession() {
+  const raw = route.query.session_id || localStorage.getItem("ah_last_session");
+  if (!raw) return;
+  if (!/^\d+$/.test(String(raw)) || Number(raw) < 1) {
+    if (route.query.session_id) throw new Error("训练编号无效");
+    return;
+  }
+  try {
+    const { data } = await api.get(`/sessions/${raw}`, { params: { user_id: user.id } });
+    const row = data.session;
+    if (row.status !== "running") {
+      if (route.query.session_id) {
+        if (row.status === "finished") await router.replace({ path: "/report", query: { session_id: row.id } });
+        else err.value = "这次训练已取消，请开始新的训练。";
+      }
+      return;
+    }
+    session.value = row;
+    exerciseId.value = row.exercise_id;
+    if (!exercises.value.some(e => e.id === row.exercise_id)) exercises.value.push({ id: row.exercise_id, name: row.exercise_name });
+    prescriptionId.value = row.prescription_id;
+    inputMode.value = row.pose_summary?.source === "camera_live_only" ? "camera" : "video";
+    savedPayload.value = { video_path: row.video_path || "", pose_summary: row.pose_summary || {} };
+    hint.value = "已恢复未完成训练；保存的数据将用于生成报告。";
+    localStorage.setItem("ah_last_session", String(row.id));
+    await router.replace({ path: "/exercise", query: { session_id: row.id } });
+  } catch (e) {
+    if (route.query.session_id) throw e;
+    if (e?.response?.status !== 404) throw e;
+  }
+}
 
+async function cancelSession() {
+  busy.value = true;
+  err.value = "";
+  try {
+    await api.post(`/sessions/${session.value.id}/cancel`, null, { params: { user_id: user.id } });
+    localStorage.removeItem("ah_last_session");
+    session.value = null;
+    stopCam();
+    await router.push("/history");
+  } catch (e) { err.value = errorMessage(e, "取消失败，请重试"); }
+  finally { busy.value = false; }
+}
 
 async function onDemoPicked() {
 
@@ -716,6 +769,7 @@ async function runVideoProcess() {
         await prepareVideoSrc(localObjectUrl);
       }
       await playWithPose();
+      await persistDraft();
 
       return;
 
@@ -760,6 +814,7 @@ async function runVideoProcess() {
     const blobUrl = URL.createObjectURL(videoFile.value);
     await prepareVideoSrc(blobUrl);
     await playWithPose();
+    await persistDraft();
 
   } catch (e) {
 
@@ -852,10 +907,12 @@ async function start() {
       exercise_name: name,
 
       prescription_id: prescriptionId.value,
+      ...buildSubmission(),
 
     });
 
     session.value = data.session;
+    await router.replace({ path: "/exercise", query: { session_id: data.session.id } });
 
     hint.value =
 
@@ -883,16 +940,8 @@ async function start() {
 
 
 
-async function finish() {
-
-  err.value = "";
-
-  busy.value = true;
-
-  stopPosePlayback();
-
-  try {
-
+function buildSubmission() {
+  if (savedPayload.value && !serverPoseResult.value?.coco17_frames?.length && !mpFrames.value.length && !camOn.value) return savedPayload.value;
     const name = exercises.value.find((e) => e.id === exerciseId.value)?.name || exerciseId.value;
 
     let poseSummary;
@@ -901,7 +950,7 @@ async function finish() {
 
       poseSummary = buildPoseSummaryFromServer({
 
-        sessionId: session.value.id,
+        sessionId: session.value?.id ?? null,
 
         exerciseId: exerciseId.value,
 
@@ -919,7 +968,7 @@ async function finish() {
 
       poseSummary = buildPoseSummary({
 
-        sessionId: session.value.id,
+        sessionId: session.value?.id ?? null,
 
         exerciseId: exerciseId.value,
 
@@ -955,7 +1004,7 @@ async function finish() {
 
     }
 
-    let videoPath = "uploads/mock_session.mp4";
+    let videoPath = "";
     if (inputMode.value === "video" && videoMeta.value.fileName) {
       if (serverPoseResult.value?.upload_rel) {
         videoPath = serverPoseResult.value.upload_rel;
@@ -970,11 +1019,31 @@ async function finish() {
 
 
 
+  return { video_path: videoPath, pose_summary: poseSummary };
+}
+
+async function persistDraft() {
+  if (!session.value) return;
+  const submission = buildSubmission();
+  await api.put(`/sessions/${session.value.id}/draft`, submission, { params: { user_id: user.id } });
+  savedPayload.value = submission;
+}
+
+async function finish() {
+
+  err.value = "";
+
+  busy.value = true;
+
+  stopPosePlayback();
+
+  try {
+
+    const submission = buildSubmission();
+
     const { data } = await api.post(`/sessions/${session.value.id}/finish`, {
 
-      video_path: videoPath,
-
-      pose_summary: poseSummary,
+      ...submission,
 
     });
 
@@ -984,9 +1053,9 @@ async function finish() {
 
     stopCam();
 
-    hint.value = `报告已生成（姿态帧 ${poseSummary.sequences?.coco17?.frames?.length ?? 0}）…`;
+    hint.value = `报告已生成（姿态帧 ${submission.pose_summary.sequences?.coco17?.frames?.length ?? 0}）…`;
 
-    router.push("/report");
+    router.push({ path: "/report", query: { session_id: data.session.id } });
 
   } catch (e) {
 

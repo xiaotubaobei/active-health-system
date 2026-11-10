@@ -17,9 +17,13 @@
 - `GET /prescriptions/current?user_id=`
 - `POST /prescriptions/{id}/advance` 推进状态机
 - `POST /sessions/start`
+- `GET /sessions/{id}?user_id=` 获取原训练及已保存的输入
+- `PUT /sessions/{id}/draft?user_id=` 保存未完成训练的姿态与视频引用
+- `POST /sessions/{id}/cancel?user_id=` 取消未完成训练
 - `POST /sessions/{id}/finish`
 - `GET /reports/{session_id}`
 - `GET /users/{user_id}/sessions?limit=50` 最近训练（最多 200 条）
+- `GET /users/{user_id}/sessions/page?page=1&page_size=10&status=&exercise_id=` 分页及筛选训练
 - `GET /users/{user_id}/kb/summary?limit=20` 个人知识库摘要（最多 100 条的统计窗口）
 - `GET /users/{user_id}/kb/entries?limit=50` 归档明细（最多 200 条）
 - `POST /demo/run-loop` `{user_id}` 演示训练归档，不写入假体测、不调整处方
@@ -31,9 +35,21 @@
 
 量表从 `/fitness/scales` 获取：青少年用 `youth`，其他年龄组用 `middle_elder`。`scores` 必须提供当前量表的全部项目，每项为 0–100 的换算分；缺项、额外项目、越界、未知量表均返回 422，不保存不完整评估。重复完成首次测评返回 409；后续测评使用 `/fitness/assess`。
 
+## 训练恢复、取消与历史筛选
+
+`POST /sessions/start` 除用户、动作与处方编号外，可接收 `video_path` 和 `pose_summary`，随训练一起保存。`GET /sessions/{id}?user_id=` 返回 `{session}`，包含已保存的输入，供页面刷新后恢复。前端 URL 保留训练编号，历史页也提供未完成训练入口。
+
+`PUT /sessions/{id}/draft?user_id=` 接收完整的 `{video_path, pose_summary}`，替换未完成训练的输入；已完成或取消返回 409。前端在训练中重新解析视频成功后保存该输入。恢复的是已保存的姿态与视频引用；本地文件预览和摄像头需用户重新选择或打开，尚未结束时的摄像头实时帧不持续保存。
+
+`POST /sessions/{id}/cancel?user_id=` 将未完成训练改为 `cancelled`，不生成报告或知识库归档；重复取消返回原记录，已完成返回 409。上述详情、保存与取消接口校验记录与传入 `user_id` 是否一致，不一致返回 404；这仍不能替代正式身份鉴权。
+
+分页历史返回 `{items, total, page, page_size, exercises}`。`page >= 1`，`page_size` 为 1–100；`status` 可选空字符串、`running`、`finished`、`cancelled`，`exercise_id` 精确匹配。记录按编号倒序；每项含 `analysis`（未归档时为 `null`）及 `history_note`，旧记录也可独立查看评估摘要。`exercises` 为该用户所有动作选项，不受本次筛选影响。页码超出范围返回空 `items`。原有列表接口不变，知识库顶部均分仍按最近归档窗口统计，不跟随历史筛选。
+
 ## 训练结束与评估状态
 
 `POST /sessions/{id}/finish` 接收 `video_path` 和 `pose_summary`，返回 `session`、`report`、`kb_entry_id`、`analysis`、`updated_prescription`。报告和知识库原子保存，失败回滚后可重试；重复请求返回原报告，不覆盖首次保存的视频与姿态。旧报告若原来没有知识库条目，重复结束仍返回原报告，不自动补写历史数据。
+
+结束时未提供视频或姿态则使用训练内已保存的值；没有视频引用时保留空字符串，不补造视频文件路径。取消后的训练不能结束，返回 409。
 
 `analysis` 示例：
 
