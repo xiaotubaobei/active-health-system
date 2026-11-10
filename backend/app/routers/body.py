@@ -1,18 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from ..database import get_db
+from ..security import get_current_user, require_owner
 from ..models.entities import BodyMetrics, User
 from ..schemas.dto import BodyParseIn
 from ..services import ai_client
+from ..services.media_access import media_path
 
 router = APIRouter(prefix="/body", tags=["body"])
 
 
 @router.post("/parse")
-async def parse_body(body: BodyParseIn, db: Session = Depends(get_db)):
-    user = db.get(User, body.user_id)
-    if not user:
-        raise HTTPException(404, "用户不存在")
+async def parse_body(body: BodyParseIn, actor: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user = require_owner(body.user_id, actor)
+    media_path(body.image_path, actor.id)
     parsing = await ai_client.parsing_analyze(
         {"image_path": body.image_path, "clicks": body.clicks, "text_prompt": "person body parts"}
     )

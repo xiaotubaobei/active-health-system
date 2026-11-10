@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
-import api, { clearUser, getUser, setUser } from "../api/client";
+import api, { clearUser, setUser } from "../api/client";
 
 const routes = [
   { path: "/login", name: "login", component: () => import("../views/Login.vue") },
@@ -22,19 +22,16 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   if (to.path === "/login") return true;
-  const user = getUser();
-  if (!user) return "/login";
-  if (to.path === "/onboarding") return true;
   try {
-    const { data } = await api.get("/onboarding/status", { params: { user_id: user.id }, timeout: 5000 });
-    setUser({ ...user, onboarding_done: data.onboarding_done, privacy_consent: data.privacy_consent });
-    if (!data.onboarding_done) return "/onboarding";
+    const { data: user } = await api.get("/users/me", { timeout: 5000 });
+    setUser(user);
+    if (to.path !== "/onboarding" && !user.onboarding_done) return "/onboarding";
   } catch (error) {
-    if (error?.response?.status === 404) {
+    if ([401, 404].includes(error?.response?.status)) {
       clearUser();
       return "/login";
     }
-    return "/onboarding";
+    return { path: "/login", query: { unavailable: "1" } };
   }
   return true;
 });

@@ -2,6 +2,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..database import get_db
+from ..security import get_current_user, owned_user, require_owner
 from ..models.entities import Prescription, User
 from ..schemas.dto import PrescriptionGenerateIn
 from ..services.catalog import load_prescription_libs
@@ -21,10 +22,8 @@ def status_flow():
 
 
 @router.post("/generate")
-def generate(body: PrescriptionGenerateIn, db: Session = Depends(get_db)):
-    user = db.get(User, body.user_id)
-    if not user:
-        raise HTTPException(404, "用户不存在")
+def generate(body: PrescriptionGenerateIn, actor: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user = require_owner(body.user_id, actor)
     last = (
         db.query(Prescription)
         .filter(Prescription.user_id == user.id)
@@ -47,7 +46,7 @@ def generate(body: PrescriptionGenerateIn, db: Session = Depends(get_db)):
 
 
 @router.get("/current")
-def current(user_id: int, db: Session = Depends(get_db)):
+def current(user_id: int, user: User = Depends(owned_user), db: Session = Depends(get_db)):
     row = (
         db.query(Prescription)
         .filter(Prescription.user_id == user_id)
@@ -60,7 +59,7 @@ def current(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/history")
-def history(user_id: int, db: Session = Depends(get_db)):
+def history(user_id: int, user: User = Depends(owned_user), db: Session = Depends(get_db)):
     return (
         db.query(Prescription)
         .filter(Prescription.user_id == user_id)
@@ -70,10 +69,12 @@ def history(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{presc_id}/advance")
-def advance(presc_id: int, db: Session = Depends(get_db)):
+def advance(presc_id: int, actor: User = Depends(get_current_user), db: Session = Depends(get_db)):
     row = db.get(Prescription, presc_id)
-    if not row:
+    if not row or row.user_id != actor.id:
         raise HTTPException(404, "处方不存在")
+    if actor.role not in {"prescription_specialist", "physician", "admin"}:
+        raise HTTPException(403, "处方状态需由授权人员审核后推进")
     row.status = next_status(row.status)
     row.updated_at = datetime.utcnow()
     db.commit()

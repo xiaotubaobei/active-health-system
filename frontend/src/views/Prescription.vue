@@ -4,7 +4,7 @@
     <div class="row">
       <button @click="generate">生成/更新处方</button>
       <button class="secondary" @click="load">刷新</button>
-      <button class="secondary" v-if="current" @click="advance">推进状态</button>
+      <button class="secondary" v-if="current && canAdvance" @click="advance">推进状态</button>
     </div>
     <div class="steps">
       <span v-for="s in flow" :key="s" :class="{ on: current?.status === s }">{{ label(s) }}</span>
@@ -74,6 +74,7 @@ const flow = [
   "feedback",
 ];
 const user = getUser();
+const canAdvance = ["prescription_specialist", "physician", "admin"].includes(user.role);
 const current = ref(null);
 const templates = ref(null);
 const allTemplates = computed(() => [

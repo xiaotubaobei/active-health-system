@@ -19,6 +19,7 @@
       <router-link to="/history">训练历史与知识库</router-link>
       <router-link to="/admin">管理端</router-link>
       <button class="secondary" style="margin-top:20px;width:100%" @click="logout">退出</button>
+      <p v-if="logoutError" role="alert">{{ logoutError }}</p>
       </nav>
     </aside>
     <main class="main">
@@ -30,15 +31,22 @@
 <script setup>
 import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { clearUser } from "./api/client";
+import api, { clearUser, errorMessage } from "./api/client";
 
 const route = useRoute();
 const menuOpen = ref(false);
+const logoutError = ref("");
 const router = useRouter();
 const isLogin = computed(() => route.path === "/login");
 
-function logout() {
-  clearUser();
-  router.push("/login");
+async function logout() {
+  logoutError.value = "";
+  try {
+    await api.post("/auth/logout");
+    clearUser();
+    await router.push("/login");
+  } catch (error) {
+    if (error?.response?.status !== 401) logoutError.value = errorMessage(error, "退出失败，请检查连接后重试");
+  }
 }
 </script>

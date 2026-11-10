@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import app.migrate as migrations
 from app.config import AI_ENDPOINTS
+from app import config
 from app.database import get_db
 from app.main import app
 
@@ -22,6 +23,7 @@ def store(tmp_path, monkeypatch):
     factory = sessionmaker(bind=engine, autoflush=False)
     monkeypatch.setattr(migrations, "engine", engine)
     monkeypatch.setattr(migrations, "DATABASE_URL", url)
+    monkeypatch.setattr(config, "ENABLE_DEMO_ACCOUNTS", False)
     for service in AI_ENDPOINTS:
         monkeypatch.setitem(AI_ENDPOINTS, service, "")
 
@@ -37,7 +39,7 @@ def store(tmp_path, monkeypatch):
 
 @pytest.fixture
 def client(store):
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-Requested-With": "ActiveHealth"}) as client:
         yield client
 
 

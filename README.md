@@ -4,7 +4,7 @@
 
 导师演示说明见 [docs/advisor_v1.md](docs/advisor_v1.md)。
 
-本轮进展与验收步骤见 [docs/progress_20261110.md](docs/progress_20261110.md)：已接通注册、首次测评、训练归档、报告回看、未完成训练恢复与取消、历史分页和筛选；演示分数不参与成绩统计，训练结束不自动修改处方。
+本轮进展与验收步骤见 [docs/progress_20261110.md](docs/progress_20261110.md)：已接通注册、首次测评、训练归档、报告回看、未完成训练恢复与取消、历史分页和筛选；后端验证登录身份，个人数据和上传视频按账号隔离。演示分数不参与成绩统计，训练结束不自动修改处方。
 
 ## 快速启动（Windows）
 
@@ -32,8 +32,10 @@ npm run dev
 
 - 前端：http://127.0.0.1:5173  
 - API 文档：http://127.0.0.1:8000/docs  
-- 演示账号：`demo` / 密码 `123456`
-- 后端启动时自动创建表，并为旧 SQLite 数据库补齐已知缺列；保留现有数据。
+- 首次使用请注册个人账号，用户名 2–64 字符，密码 8–128 字符。
+- 一键启动脚本显式开启本地演示账号 `demo` / `123456`；手动启动默认关闭。需要演示时，在启动后端的 PowerShell 中先设置 `$env:ENABLE_DEMO_ACCOUNTS="true"`。演示账号只有普通用户权限，旧的默认医师、专家、管理员账号禁止登录。
+- 后端启动时自动创建表，并为旧 SQLite 数据库补齐已知缺列；旧明文密码转为加盐哈希，原密码仍可登录，保留现有业务数据。旧浏览器登录需重新登录一次。
+- 登录有效期为 8 小时，退出立即撤销当前凭证。账号与部署配置见 [docs/authentication.md](docs/authentication.md)。
 
 ## 假数据闭环演示路径
 
@@ -81,7 +83,7 @@ python scripts\setup_offline_demo.py
 ```
 
 启动前后端后，登录 **运动中监测** → **离线视频** → **演示样本** → 解析 → **开始会话** → **结束并生成报告**。  
-详见 [docs/offline_demo_quickstart.md](docs/offline_demo_quickstart.md)。后端已启动时可跑 API 冒烟：`python scripts/e2e_offline_demo.py`。
+详见 [docs/offline_demo_quickstart.md](docs/offline_demo_quickstart.md)。后端开启本地演示账号后，可跑 API 冒烟：`python scripts/e2e_offline_demo.py`。该脚本使用 mock 姿态，不验证真实算法。
 
 ## 文档
 

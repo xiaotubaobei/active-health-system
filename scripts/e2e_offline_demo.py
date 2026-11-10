@@ -7,11 +7,14 @@ import urllib.error
 import urllib.request
 
 API = "http://127.0.0.1:8000"
+TOKEN = ""
 
 
 def _json(method: str, path: str, body: dict | None = None, timeout: float = 60) -> dict:
     data = None
     headers = {"Content-Type": "application/json"}
+    if TOKEN:
+        headers["Authorization"] = f"Bearer {TOKEN}"
     if body is not None:
         data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(f"{API}{path}", data=data, headers=headers, method=method)
@@ -20,6 +23,7 @@ def _json(method: str, path: str, body: dict | None = None, timeout: float = 60)
 
 
 def main() -> int:
+    global TOKEN
     print("1) GET /demo-videos/manifest")
     manifest = _json("GET", "/demo-videos/manifest")
     videos = manifest.get("videos") or []
@@ -45,9 +49,10 @@ def main() -> int:
     except urllib.error.HTTPError as e:
         print(f"FAIL 登录 {e.code}: {e.read().decode()[:200]}")
         return 1
+    TOKEN = auth["token"]
     user_id = auth.get("user", {}).get("id") or auth.get("id")
     if not user_id:
-        print("FAIL 登录响应无 user_id", auth)
+        print("FAIL 登录响应无 user_id")
         return 1
 
     print("4) POST /sessions/start + finish（mock 离线 pose_summary）")

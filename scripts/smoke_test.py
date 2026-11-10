@@ -11,7 +11,7 @@ API = "http://127.0.0.1:8000"
 
 
 def main():
-    with httpx.Client(base_url=API, timeout=30.0) as client:
+    with httpx.Client(base_url=API, timeout=30.0, headers={"X-Requested-With": "ActiveHealth"}) as client:
         def request(method, path, **kwargs):
             response = client.request(method, path, **kwargs)
             response.raise_for_status()

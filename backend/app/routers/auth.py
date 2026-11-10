@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models.entities import User
+from ..models.entities import AuthSession, User
 from ..schemas.dto import LoginIn, RegisterIn, UserUpdate
+from .. import config
+from ..passwords import hash_password, verify_password
+from ..security import COOKIE_NAME, RESERVED_NAMES, get_current_user, issue_session, owned_user, require_owner, request_token, token_digest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 users_router = APIRouter(prefix="/users", tags=["users"])
@@ -24,25 +28,21 @@ def _user_public(user: User) -> dict:
 
 
 def _ensure_demo_users(db: Session):
-    demos = [
-        ("demo", "user"),
-        ("specialist", "prescription_specialist"),
-        ("physician", "physician"),
-        ("admin", "admin"),
-    ]
+    demos = [("demo", "user")]
     for name, role in demos:
         u = db.query(User).filter(User.username == name).first()
         if not u:
             db.add(
                 User(
                     username=name,
-                    password="123456",
+                    password=hash_password("123456"),
                     role=role,
                     privacy_consent=True,
                     onboarding_done=True,
                 )
             )
         else:
+            u.role = "user"
             # 演示账号默认已完成引导，避免卡住旧库
             if not u.onboarding_done and name == "demo":
                 u.privacy_consent = True
@@ -51,56 +51,71 @@ def _ensure_demo_users(db: Session):
 
 
 @router.post("/register")
-def register(body: RegisterIn, db: Session = Depends(get_db)):
+def register(body: RegisterIn, request: Request, response: Response, db: Session = Depends(get_db)):
     if not body.privacy_consent:
         raise HTTPException(400, "请先勾选隐私同意与医疗免责声明")
     name = (body.username or "").strip()
     if len(name) < 2:
         raise HTTPException(400, "用户名至少 2 个字符")
+    if name.casefold() in RESERVED_NAMES:
+        raise HTTPException(400, "该用户名为系统保留名称，请使用其他名称")
     if db.query(User).filter(User.username == name).first():
         raise HTTPException(400, "用户名已存在")
-    role = body.role if body.role in ("user", "prescription_specialist", "physician") else "user"
     user = User(
         username=name,
-        password=body.password or "123456",
-        role=role,
+        password=hash_password(body.password),
+        role="user",
         privacy_consent=True,
         onboarding_done=False,
     )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(400, "用户名已存在")
     return {
-        "token": f"dev-{user.id}-{user.role}",
+        "token": issue_session(db, user, response, request),
         "user": _user_public(user),
     }
 
 
 @router.post("/login")
-def login(body: LoginIn, db: Session = Depends(get_db)):
-    _ensure_demo_users(db)
-    user = db.query(User).filter(User.username == body.username).first()
-    if not user or user.password != body.password:
+def login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
+    name = body.username.strip()
+    if name in RESERVED_NAMES:
+        if not config.ENABLE_DEMO_ACCOUNTS or name != "demo":
+            raise HTTPException(401, "演示账号未启用，请注册或使用个人账号")
+        _ensure_demo_users(db)
+    user = db.query(User).filter(User.username == name).first()
+    if not user or not verify_password(body.password, user.password):
         raise HTTPException(401, "用户名或密码错误")
     return {
-        "token": f"dev-{user.id}-{user.role}",
+        "token": issue_session(db, user, response, request),
         "user": _user_public(user),
     }
 
 
+@router.post("/logout")
+def logout(request: Request, response: Response, actor: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db.query(AuthSession).filter_by(token_hash=token_digest(request_token(request))).delete()
+    db.commit()
+    response.delete_cookie(COOKIE_NAME, path="/", secure=config.COOKIE_SECURE, httponly=True, samesite="lax")
+    response.headers["Cache-Control"] = "no-store"
+    return {"ok": True}
+
+
 @users_router.get("/me")
-def me(user_id: int, db: Session = Depends(get_db)):
-    user = db.get(User, user_id)
-    if not user:
-        raise HTTPException(404, "用户不存在")
+def me(user_id: int | None = None, user: User = Depends(get_current_user)):
+    if user_id is not None:
+        require_owner(user_id, user)
     return _user_public(user)
 
 
 @users_router.put("/me")
-def update_me(user_id: int, body: UserUpdate, db: Session = Depends(get_db)):
-    user = db.get(User, user_id)
-    if not user:
-        raise HTTPException(404, "用户不存在")
+def update_me(body: UserUpdate, user_id: int | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user_id is not None:
+        require_owner(user_id, user)
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(user, k, v)
     db.commit()
@@ -109,7 +124,7 @@ def update_me(user_id: int, body: UserUpdate, db: Session = Depends(get_db)):
 
 
 @users_router.get("/{user_id}/export")
-def export_user_data(user_id: int, db: Session = Depends(get_db)):
+def export_user_data(user_id: int, user: User = Depends(owned_user), db: Session = Depends(get_db)):
     """导出某用户数据（本人可见范围）。"""
     from ..models.entities import (
         BehaviorReport,

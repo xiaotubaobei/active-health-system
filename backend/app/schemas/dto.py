@@ -3,15 +3,15 @@ from typing import Any, Literal
 
 
 class LoginIn(BaseModel):
-    username: str
-    password: str = "123456"
+    username: str = Field(min_length=2, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class RegisterIn(BaseModel):
-    username: str
-    password: str = "123456"
+    username: str = Field(min_length=2, max_length=64)
+    password: str = Field(min_length=8, max_length=128)
     privacy_consent: bool = False
-    role: str = "user"
+    role: Literal["user"] = "user"
 
 
 class UserUpdate(BaseModel):

@@ -1,8 +1,11 @@
 """轻量 schema 迁移：create_all + SQLite 缺列补齐。"""
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, select
+from sqlalchemy.orm import Session
 
 from .config import DATABASE_URL
 from .database import Base, engine
+from .models.entities import User
+from .passwords import PREFIX, hash_password
 
 
 def _sqlite_columns(table: str) -> set[str]:
@@ -21,8 +24,17 @@ def _add_col(table: str, col: str, ddl: str) -> None:
 
 def migrate_schema() -> None:
     Base.metadata.create_all(bind=engine)
-    if not DATABASE_URL.startswith("sqlite"):
-        return
+    if DATABASE_URL.startswith("sqlite"):
+        _migrate_sqlite_columns()
+    # Upgrade legacy plaintext credentials without changing the user's password.
+    with Session(engine) as db:
+        for user in db.scalars(select(User).where(User.password.is_not(None))):
+            if not user.password.startswith(PREFIX):
+                user.password = hash_password(user.password)
+        db.commit()
+
+
+def _migrate_sqlite_columns() -> None:
     insp = inspect(engine)
     if "users" in insp.get_table_names():
         _add_col("users", "privacy_consent", "privacy_consent BOOLEAN DEFAULT 0")

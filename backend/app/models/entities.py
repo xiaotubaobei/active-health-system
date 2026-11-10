@@ -8,7 +8,7 @@ class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    password: Mapped[str] = mapped_column(String(128), default="123456")
+    password: Mapped[str] = mapped_column(String(128))
     role: Mapped[str] = mapped_column(String(32), default="user")  # user|prescription_specialist|physician|admin
     age_group: Mapped[str] = mapped_column(String(32), default="middle_age")
     height_cm: Mapped[float] = mapped_column(Float, default=170.0)
@@ -18,6 +18,13 @@ class User(Base):
     privacy_consent: Mapped[bool] = mapped_column(Boolean, default=False)
     onboarding_done: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
 
 
 class FitnessAssessment(Base):

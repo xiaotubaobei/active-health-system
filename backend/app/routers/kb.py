@@ -5,6 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..security import owned_user
 from ..models.entities import ExerciseSession, KbEntry, User
 from ..services.kb import kb_summary
 from ..services.analysis import analysis_summary
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/users", tags=["kb"])
 
 
 @router.get("/{user_id}/kb/summary")
-def summary(user_id: int, limit: int = 20, db: Session = Depends(get_db)):
+def summary(user_id: int, limit: int = 20, user: User = Depends(owned_user), db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(404, "用户不存在")
@@ -21,7 +22,7 @@ def summary(user_id: int, limit: int = 20, db: Session = Depends(get_db)):
 
 
 @router.get("/{user_id}/sessions")
-def list_sessions(user_id: int, limit: int = 50, db: Session = Depends(get_db)):
+def list_sessions(user_id: int, limit: int = 50, user: User = Depends(owned_user), db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(404, "用户不存在")
@@ -54,7 +55,7 @@ def list_sessions(user_id: int, limit: int = 50, db: Session = Depends(get_db)):
 def sessions_page(user_id: int, page: int = Query(1, ge=1),
                   page_size: int = Query(10, ge=1, le=100),
                   status: Literal["", "running", "finished", "cancelled"] = "",
-                  exercise_id: str = "", db: Session = Depends(get_db)):
+                  exercise_id: str = "", user: User = Depends(owned_user), db: Session = Depends(get_db)):
     if not db.get(User, user_id):
         raise HTTPException(404, "用户不存在")
     base = db.query(ExerciseSession).filter(ExerciseSession.user_id == user_id)
@@ -83,7 +84,7 @@ def sessions_page(user_id: int, page: int = Query(1, ge=1),
 
 
 @router.get("/{user_id}/kb/entries")
-def list_entries(user_id: int, limit: int = 50, db: Session = Depends(get_db)):
+def list_entries(user_id: int, limit: int = 50, user: User = Depends(owned_user), db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(404, "用户不存在")
@@ -107,7 +108,7 @@ def list_entries(user_id: int, limit: int = 50, db: Session = Depends(get_db)):
 
 
 @router.delete("/{user_id}/kb")
-def clear_kb(user_id: int, confirm: str = "", db: Session = Depends(get_db)):
+def clear_kb(user_id: int, confirm: str = "", user: User = Depends(owned_user), db: Session = Depends(get_db)):
     """清空某用户 KB（需 confirm=CLEAR）。会话/报告保留。"""
     if confirm != "CLEAR":
         raise HTTPException(400, "请传 confirm=CLEAR 确认清空")

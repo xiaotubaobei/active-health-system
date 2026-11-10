@@ -3,6 +3,16 @@ import axios from "axios";
 const api = axios.create({
   baseURL: "/api",
   timeout: 30000,
+  withCredentials: true,
+  headers: { "X-Requested-With": "ActiveHealth" },
+});
+
+api.interceptors.response.use(response => response, error => {
+  if (error?.response?.status === 401 && !["/auth/login", "/auth/register"].includes(error.config?.url)) {
+    clearUser();
+    if (window.location.pathname !== "/login") window.location.replace("/login?expired=1");
+  }
+  return Promise.reject(error);
 });
 
 export function getUser() {

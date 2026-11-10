@@ -18,5 +18,9 @@ AI_ENDPOINTS = {
     "video_cot": os.getenv("AI_VIDEO_COT_URL", "http://127.0.0.1:8107"),
 }
 
-SECRET_KEY = os.getenv("SECRET_KEY", "active-health-dev-secret")
+ENABLE_DEMO_ACCOUNTS = os.getenv("ENABLE_DEMO_ACCOUNTS", "false").lower() == "true"
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv(
+    "ALLOWED_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:8000,http://localhost:8000"
+).split(",") if origin.strip()]
 VERSION = "0.2.0-demo"

@@ -2,46 +2,22 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from ..config import DATA_DIR, ROOT, UPLOAD_DIR
+from ..config import ROOT, UPLOAD_DIR
 from ..schemas.dto import VideoPoseInferIn
 from ..services import ai_client
+from ..services.media_access import media_path
+from ..security import get_current_user
+from ..models.entities import User
 
 router = APIRouter(prefix="/pose", tags=["pose"])
 
-_ALLOWED_ROOTS = tuple({p.resolve() for p in (DATA_DIR, UPLOAD_DIR, ROOT / "data")})
-
-
-def _resolve_video_path(video_path: str) -> Path:
-    raw = video_path.replace("\\", "/").strip()
-    if not raw or ".." in raw:
-        raise HTTPException(400, "非法 video_path")
-
-    rel = raw
-    if rel.startswith("data/"):
-        rel = rel[5:]
-
-    candidates = [
-        Path(raw),
-        ROOT / raw,
-        ROOT / rel,
-        DATA_DIR / rel,
-        DATA_DIR.parent / rel,
-    ]
-    for cand in candidates:
-        if not cand.is_file():
-            continue
-        full = cand.resolve()
-        if any(str(full).startswith(str(root)) for root in _ALLOWED_ROOTS):
-            return full
-    raise HTTPException(404, f"视频不存在: {video_path}")
-
-
 @router.post("/infer-video")
-async def infer_video(body: VideoPoseInferIn):
-    path = _resolve_video_path(body.video_path)
+async def infer_video(body: VideoPoseInferIn, actor: User = Depends(get_current_user)):
+    path = media_path(body.video_path, actor.id, must_exist=True)
     result = await ai_client.pose_infer_video(
         {"video_path": str(path), "sample_hz": body.sample_hz, "exercise_id": body.exercise_id}
     )
@@ -62,16 +38,23 @@ async def infer_video(body: VideoPoseInferIn):
 @router.post("/infer-video-upload")
 async def infer_video_upload(
     file: UploadFile = File(...),
-    sample_hz: float = Form(6.0),
+    sample_hz: float = Form(6.0, ge=1.0, le=15.0),
     exercise_id: str | None = Form(None),
+    actor: User = Depends(get_current_user),
 ):
     if not file.filename:
         raise HTTPException(400, "缺少文件名")
-    dest_dir = UPLOAD_DIR / "offline"
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in {".mp4", ".mov", ".avi", ".webm", ".mkv"}:
+        raise HTTPException(400, "请上传支持的视频格式")
+    dest_dir = UPLOAD_DIR / "offline" / str(actor.id)
     dest_dir.mkdir(parents=True, exist_ok=True)
-    safe = Path(file.filename).name
+    safe = f"{uuid4().hex}{suffix}"
     dest = dest_dir / safe
-    data = await file.read()
+    limit = 100 * 1024 * 1024
+    data = await file.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(413, "视频不能超过 100 MB")
     if len(data) < 1000:
         raise HTTPException(400, "文件过小")
     dest.write_bytes(data)
@@ -81,7 +64,7 @@ async def infer_video_upload(
     )
     if result.get("mode") == "local_fallback":
         raise HTTPException(503, result.get("error") or "姿态服务不可用")
-    result["upload_rel"] = f"uploads/offline/{safe}"
+    result["upload_rel"] = f"uploads/offline/{actor.id}/{safe}"
     return result
 
 

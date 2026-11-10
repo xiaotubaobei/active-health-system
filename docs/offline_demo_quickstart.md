@@ -23,6 +23,8 @@ cd frontend && npm run dev
 
 浏览器打开 `http://127.0.0.1:5173`，登录后进入 **运动中监测**。
 
+首次使用请注册并完成首次测评。手动启动默认禁用演示账号；如需运行 `scripts/e2e_offline_demo.py`，请在后端启动前设置环境变量 `ENABLE_DEMO_ACCOUNTS=true`，或使用 README 的本地一键启动脚本。上传视频会按账号隔离，旧共享上传文件需重新上传，详见 [authentication.md](authentication.md)。
+
 ## 3. 跑通闭环
 
 1. **输入** → 离线视频（推荐）

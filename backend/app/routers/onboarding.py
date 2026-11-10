@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..security import get_current_user, owned_user, require_owner
 from ..models.entities import FitnessAssessment, FitnessBaseline, Prescription, User
 from ..schemas.dto import OnboardingCompleteIn
 from ..services.fitness import evaluate_scores
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
 
 @router.get("/status")
-def status(user_id: int, db: Session = Depends(get_db)):
+def status(user_id: int, user: User = Depends(owned_user), db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(404, "用户不存在")
@@ -38,8 +39,8 @@ def status(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/complete")
-def complete(body: OnboardingCompleteIn, db: Session = Depends(get_db)):
-    user = db.get(User, body.user_id)
+def complete(body: OnboardingCompleteIn, actor: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user = require_owner(body.user_id, actor)
     if not user:
         raise HTTPException(404, "用户不存在")
     if not body.privacy_consent:

@@ -19,8 +19,8 @@ def start(client, result):
 
 
 def test_new_account_must_complete_assessment(client, store, onboard):
-    assert client.post("/auth/register", json={"username": "no-consent"}).status_code == 400
-    created = client.post("/auth/register", json={"username": "new-user", "privacy_consent": True}).json()
+    assert client.post("/auth/register", json={"username": "no-consent", "password": "test-password"}).status_code == 400
+    created = client.post("/auth/register", json={"username": "new-user", "password": "test-password", "privacy_consent": True}).json()
     uid = created["user"]["id"]
     assert not client.get("/onboarding/status", params={"user_id": uid}).json()["onboarding_done"]
     assert client.post("/sessions/start", json={"user_id": uid, "exercise_id": "squat"}).status_code == 409
@@ -38,7 +38,7 @@ def test_new_account_must_complete_assessment(client, store, onboard):
 
 @pytest.mark.parametrize("invalid", ["missing", "range", "unknown", "extra", "age-mismatch"])
 def test_invalid_scores_never_create_records(client, store, invalid):
-    user = client.post("/auth/register", json={"username": "invalid-user", "privacy_consent": True}).json()["user"]
+    user = client.post("/auth/register", json={"username": "invalid-user", "password": "test-password", "privacy_consent": True}).json()["user"]
     scale = next(s for s in client.get("/fitness/scales").json() if s["id"] == "middle_elder")
     body = {"user_id": user["id"], "scale_id": scale["id"], "privacy_consent": True,
             "scores": {item["key"]: 70 for item in scale["items"]}}
@@ -66,7 +66,7 @@ def test_finish_archives_once_and_excludes_demo_scores(client, store, onboard):
     sid = start(client, result)
     pose = {"source": "offline_video", "sequences": {"coco17": {"frames": [{"t_ms": 0}]}},
             "motion_analysis": {"status": "ok", "rep_count": 1, "rep_intervals": [{"start_sec": 0, "end_sec": 2}]}}
-    response = client.post(f"/sessions/{sid}/finish", json={"video_path": "test.mp4", "pose_summary": pose})
+    response = client.post(f"/sessions/{sid}/finish", json={"video_path": "demo_videos/test.mp4", "pose_summary": pose})
     assert response.status_code == 200, response.text
     first = response.json()
     assert first["analysis"]["status"] == "demo"
@@ -75,7 +75,7 @@ def test_finish_archives_once_and_excludes_demo_scores(client, store, onboard):
     assert first["kb_entry_id"]
     second = client.post(f"/sessions/{sid}/finish", json={"video_path": "should-not-replace.mp4"}).json()
     assert first["report"]["id"] == second["report"]["id"]
-    assert second["session"]["video_path"] == "test.mp4"
+    assert second["session"]["video_path"] == "demo_videos/test.mp4"
     assert second["kb_entry_id"] == first["kb_entry_id"]
     uid = result["user"]["id"]
     summary = client.get(f"/users/{uid}/kb/summary").json()
@@ -167,6 +167,7 @@ def test_simultaneous_finishes_create_one_report(client, store, onboard, monkeyp
 def test_foreign_prescription_rejected_and_demo_does_not_change_baseline(client, store, onboard):
     first, _ = onboard("first-user")
     second, _ = onboard("second-user")
+    client.post("/auth/login", json={"username": "first-user", "password": "test-password"})
     assert client.post("/sessions/start", json={"user_id": first["user"]["id"],
         "prescription_id": second["prescription"]["id"], "exercise_id": "squat"}).status_code == 400
     response = client.post("/demo/run-loop", json={"user_id": first["user"]["id"]})
@@ -194,7 +195,9 @@ def test_old_schema_migrates_without_losing_data(store):
         assert db.execute(text("SELECT count(*) FROM behavior_reports")).scalar() == 1
 
 
-def test_fresh_demo_creates_only_initial_template(client, store):
+def test_fresh_demo_creates_only_initial_template(client, store, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "ENABLE_DEMO_ACCOUNTS", True)
     user = client.post("/auth/login", json={"username": "demo", "password": "123456"}).json()["user"]
     for _ in range(2):
         response = client.post("/demo/run-loop", json={"user_id": user["id"]})
@@ -212,10 +215,11 @@ def test_fresh_demo_creates_only_initial_template(client, store):
 def test_resume_saved_input_cancel_and_ownership(client, store, onboard):
     result, _ = onboard()
     other, _ = onboard("other-user")
+    client.post("/auth/login", json={"username": "test-user", "password": "test-password"})
     uid = result["user"]["id"]
     pose = {"source": "offline_video", "sequences": {"coco17": {"frames": [{"t_ms": 0}]}}}
     response = client.post("/sessions/start", json={"user_id": uid, "exercise_id": "squat",
-        "video_path": "uploads/real.mp4", "pose_summary": pose})
+        "video_path": f"uploads/offline/{uid}/real.mp4", "pose_summary": pose})
     sid = response.json()["session"]["id"]
     assert client.get(f"/sessions/{sid}", params={"user_id": uid}).json()["session"]["pose_summary"] == pose
     foreign = {"user_id": other["user"]["id"]}
@@ -224,10 +228,10 @@ def test_resume_saved_input_cancel_and_ownership(client, store, onboard):
     assert client.post(f"/sessions/{sid}/cancel", params=foreign).status_code == 404
     pose["sequences"]["coco17"]["frames"].append({"t_ms": 100})
     assert client.put(f"/sessions/{sid}/draft", params={"user_id": uid}, json={
-        "video_path": "uploads/replaced.mp4", "pose_summary": pose}).status_code == 200
+        "video_path": f"uploads/offline/{uid}/replaced.mp4", "pose_summary": pose}).status_code == 200
     # Empty finish after a reload must use the durable saved input.
     finished = client.post(f"/sessions/{sid}/finish", json={}).json()
-    assert finished["session"]["video_path"] == "uploads/replaced.mp4"
+    assert finished["session"]["video_path"] == f"uploads/offline/{uid}/replaced.mp4"
     assert finished["session"]["pose_summary"] == pose
     assert client.post(f"/sessions/{sid}/cancel", params={"user_id": uid}).status_code == 409
     assert client.put(f"/sessions/{sid}/draft", params={"user_id": uid}, json={}).status_code == 409

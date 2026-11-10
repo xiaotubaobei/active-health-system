@@ -21,8 +21,8 @@ def _manifest_path() -> Path:
 def _safe_video_path(rel_path: str) -> Path:
     if not rel_path or ".." in rel_path.replace("\\", "/"):
         raise HTTPException(400, "非法路径")
-    full = (DEMO_ROOT / rel_path.replace("/", "\\")).resolve()
-    if not str(full).startswith(str(DEMO_ROOT)):
+    full = (DEMO_ROOT / rel_path.replace("\\", "/")).resolve()
+    if not full.is_relative_to(DEMO_ROOT):
         raise HTTPException(400, "路径越界")
     if not full.is_file() or full.suffix.lower() != ".mp4":
         raise HTTPException(404, "视频不存在")

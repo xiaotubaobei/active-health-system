@@ -12,7 +12,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start_framework.ps1
 ```
 
 - 网页 http://127.0.0.1:5173
-- 账号 `demo` / `123456`
+- 一键脚本开启本地演示账号 `demo` / `123456`；手动启动默认关闭，可直接注册个人账号。账号与权限说明见 [authentication.md](authentication.md)。
 
 ## 建议演示路径（3 分钟）
 

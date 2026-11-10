@@ -1,11 +1,13 @@
 <template>
   <div class="card">
     <h2>{{ registering ? "注册个人账号" : "登录" }}</h2>
-    <p class="muted">演示账号：demo / specialist / physician / admin，密码 123456</p>
+    <p class="muted">请使用个人账号登录；首次使用可注册。demo / 123456 仅在后端开启本地演示模式时可用。</p>
+    <p v-if="route.query.expired" class="muted">登录已失效，请重新登录。</p>
+    <p v-if="route.query.unavailable" class="err">暂时无法连接系统，请稍后重试。</p>
     <form @submit.prevent="submit">
       <div class="row" style="margin-top:12px">
-        <label>用户名 <input v-model="username" autocomplete="username" minlength="2" required /></label>
-        <label>密码 <input v-model="password" type="password" :autocomplete="registering ? 'new-password' : 'current-password'" required /></label>
+        <label>用户名 <input v-model="username" autocomplete="username" minlength="2" maxlength="64" required /></label>
+        <label>密码 <input v-model="password" type="password" :minlength="registering ? 8 : 1" maxlength="128" :autocomplete="registering ? 'new-password' : 'current-password'" required /></label>
       </div>
       <p v-if="registering"><label><input v-model="consent" type="checkbox" required /> 我同意将资料与训练记录用于本系统个人档案，并知悉运动健康建议不构成医疗诊断或治疗。</label></p>
       <div class="row" style="margin-top:12px">
@@ -19,12 +21,13 @@
 
 <script setup>
 import { ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import api, { errorMessage, setUser } from "../api/client";
 
 const router = useRouter();
-const username = ref("demo");
-const password = ref("123456");
+const route = useRoute();
+const username = ref("");
+const password = ref("");
 const registering = ref(false);
 const consent = ref(false);
 const busy = ref(false);

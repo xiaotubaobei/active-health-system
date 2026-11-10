@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..security import get_current_user, require_owner
 from ..models.entities import User, Prescription, ExerciseSession
 from ..schemas.dto import SessionFinishIn
 from ..services.prescription import pick_template
@@ -19,10 +20,8 @@ class DemoLoopIn(BaseModel):
 
 
 @router.post("/run-loop")
-async def run_loop(body: DemoLoopIn, db: Session = Depends(get_db)):
-    user = db.get(User, body.user_id)
-    if not user:
-        raise HTTPException(404, "用户不存在")
+async def run_loop(body: DemoLoopIn, actor: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user = require_owner(body.user_id, actor)
     if not user.onboarding_done:
         raise HTTPException(409, "请先完成首次测评")
     presc = db.query(Prescription).filter_by(user_id=user.id).order_by(Prescription.version.desc()).first()

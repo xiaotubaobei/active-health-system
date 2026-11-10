@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..database import get_db
+from ..security import get_current_user, require_owner
 from ..models.entities import FitnessAssessment, User, Prescription
 from ..schemas.dto import FitnessAssessIn
 from ..services.catalog import load_fitness_scales
@@ -16,10 +17,8 @@ def scales():
 
 
 @router.post("/assess")
-def assess(body: FitnessAssessIn, db: Session = Depends(get_db)):
-    user = db.get(User, body.user_id)
-    if not user:
-        raise HTTPException(404, "用户不存在")
+def assess(body: FitnessAssessIn, actor: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user = require_owner(body.user_id, actor)
     scale, total_score, level = evaluate_scores(body.scale_id, body.scores)
     row = FitnessAssessment(
         user_id=user.id,

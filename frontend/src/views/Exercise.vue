@@ -1013,7 +1013,8 @@ function buildSubmission() {
       } else if (serverPoseResult.value?.resolved_path) {
         videoPath = serverPoseResult.value.resolved_path;
       } else {
-        videoPath = `uploads/offline/${videoMeta.value.fileName}`;
+        // Browser-only analysis does not upload or persist the local video file.
+        videoPath = "";
       }
     }
 
