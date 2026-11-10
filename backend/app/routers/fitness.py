@@ -4,6 +4,7 @@ from ..database import get_db
 from ..models.entities import FitnessAssessment, User, Prescription
 from ..schemas.dto import FitnessAssessIn
 from ..services.catalog import load_fitness_scales
+from ..services.fitness import evaluate_scores
 from ..services.prescription import next_status
 
 router = APIRouter(prefix="/fitness", tags=["fitness"])
@@ -19,17 +20,7 @@ def assess(body: FitnessAssessIn, db: Session = Depends(get_db)):
     user = db.get(User, body.user_id)
     if not user:
         raise HTTPException(404, "用户不存在")
-    scales = {s["id"]: s for s in load_fitness_scales()}
-    scale = scales.get(body.scale_id) or next(iter(scales.values()))
-    total = 0.0
-    weight_sum = 0.0
-    for item in scale["items"]:
-        w = float(item["weight"])
-        score = float(body.scores.get(item["key"], 70))
-        total += score * w
-        weight_sum += w
-    total_score = round(total / weight_sum, 2) if weight_sum else 0
-    level = "excellent" if total_score >= 85 else "good" if total_score >= 70 else "average" if total_score >= 55 else "poor"
+    scale, total_score, level = evaluate_scores(body.scale_id, body.scores)
     row = FitnessAssessment(
         user_id=user.id,
         scale_id=scale["id"],

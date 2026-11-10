@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Any
+from typing import Any, Literal
 
 
 class LoginIn(BaseModel):
@@ -31,15 +31,15 @@ class FitnessAssessIn(BaseModel):
 
 class OnboardingCompleteIn(BaseModel):
     user_id: int
-    age_group: str = "middle_age"
-    height_cm: float = 170.0
-    weight_kg: float = 65.0
+    age_group: Literal["youth", "middle_age", "elder"] = "middle_age"
+    height_cm: float = Field(default=170.0, gt=0, le=300, allow_inf_nan=False)
+    weight_kg: float = Field(default=65.0, gt=0, le=700, allow_inf_nan=False)
     chronic_tags: list[str] = Field(default_factory=list)
-    goal: str = "fitness"
+    goal: Literal["fitness", "medical"] = "fitness"
     scale_id: str = ""
     scores: dict[str, float] = Field(default_factory=dict)
     pose_baseline: dict[str, Any] = Field(default_factory=dict)
-    privacy_consent: bool = True
+    privacy_consent: bool = False
     generate_prescription: bool = True
 
 

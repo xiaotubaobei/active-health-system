@@ -8,11 +8,13 @@
       <p>初版演示 · 申请书图14全周期</p>
       <router-link to="/">总览</router-link>
       <router-link to="/profile">用户档案</router-link>
+      <router-link to="/onboarding">首次测评</router-link>
       <router-link to="/fitness">体适能评估</router-link>
       <router-link to="/body">体型解析</router-link>
       <router-link to="/prescription">运动处方</router-link>
       <router-link to="/exercise">运动中监测</router-link>
       <router-link to="/report">运动后报告/CoT</router-link>
+      <router-link to="/history">训练历史与知识库</router-link>
       <router-link to="/admin">管理端</router-link>
       <button class="secondary" style="margin-top:20px;width:100%" @click="logout">退出</button>
     </aside>

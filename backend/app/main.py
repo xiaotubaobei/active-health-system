@@ -1,11 +1,19 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import VERSION
-from .database import engine, Base
 from .models import entities  # noqa: F401
-from .routers import auth, fitness, body, prescriptions, sessions, reports, devices, demo, demo_videos, pose_infer
+from .migrate import migrate_schema
+from .routers import auth, fitness, body, prescriptions, sessions, reports, devices, demo, demo_videos, pose_infer, onboarding, kb
 
-app = FastAPI(title="Active Health Intelligent Service", version=VERSION)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    migrate_schema()
+    yield
+
+
+app = FastAPI(title="Active Health Intelligent Service", version=VERSION, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,8 +21,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-Base.metadata.create_all(bind=engine)
 
 app.include_router(auth.router)
 app.include_router(auth.users_router)
@@ -27,6 +33,8 @@ app.include_router(devices.router)
 app.include_router(demo.router)
 app.include_router(demo_videos.router)
 app.include_router(pose_infer.router)
+app.include_router(onboarding.router)
+app.include_router(kb.router)
 
 
 @app.get("/health")

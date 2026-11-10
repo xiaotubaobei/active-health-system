@@ -11,18 +11,19 @@
       <span>2 个性化处方</span>
       <span>3 体型/手环</span>
       <span>4 离线/摄像头+姿态</span>
-      <span>5 CoT 报告并调处方</span>
+      <span>5 报告归档与历史记录</span>
     </div>
     <div class="row">
       <button @click="runDemo" :disabled="busy">{{ busy ? "演示生成中…" : "一键跑通演示闭环" }}</button>
+      <router-link to="/history"><button class="secondary">查看训练历史</button></router-link>
       <router-link to="/fitness"><button class="secondary">从体适能开始</button></router-link>
       <router-link to="/exercise"><button class="secondary">离线 / 摄像头运动页</button></router-link>
     </div>
     <p v-if="msg" class="ok">{{ msg }}</p>
     <p v-if="err" class="err">{{ err }}</p>
     <p class="muted">
-      一键演示走 mock 闭环；展示主线建议：<strong>运动页 → 离线视频 → RepCount 深蹲 → 播放看骨架 → 开会话出报告</strong>
-      （RTMPose 真姿态；CoT 文字仍为桩）。清单见 <code>docs/demo_1h_checklist.md</code>。
+      一键演示生成样例报告并归档，不计入成绩、不自动调整处方；展示主线建议：<strong>运动页 → 离线视频 → RepCount 深蹲 → 播放看骨架 → 开会话出报告</strong>
+      （姿态推理需启动 RTMPose 服务；CoT 文字仍为演示数据）。清单见 <code>docs/demo_1h_checklist.md</code>。
     </p>
   </div>
 </template>

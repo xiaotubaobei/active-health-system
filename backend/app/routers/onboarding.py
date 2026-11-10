@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models.entities import FitnessAssessment, FitnessBaseline, Prescription, User
 from ..schemas.dto import OnboardingCompleteIn
-from ..services.catalog import load_fitness_scales
+from ..services.fitness import evaluate_scores
 from ..services.prescription import pick_template
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
@@ -44,6 +44,12 @@ def complete(body: OnboardingCompleteIn, db: Session = Depends(get_db)):
         raise HTTPException(404, "用户不存在")
     if not body.privacy_consent:
         raise HTTPException(400, "须同意隐私政策与运动健康免责声明")
+    if user.onboarding_done:
+        raise HTTPException(409, "首次测评已完成，请到体适能评估页进行后续测评")
+    scale, total_score, level = evaluate_scores(body.scale_id, body.scores)
+    expected_scale = "youth" if body.age_group == "youth" else "middle_elder"
+    if scale["id"] != expected_scale:
+        raise HTTPException(422, "量表与年龄组不匹配")
 
     user.age_group = body.age_group
     user.height_cm = body.height_cm
@@ -51,26 +57,6 @@ def complete(body: OnboardingCompleteIn, db: Session = Depends(get_db)):
     user.chronic_tags = body.chronic_tags
     user.goal = body.goal
     user.privacy_consent = True
-
-    scales = {s["id"]: s for s in load_fitness_scales()}
-    scale = scales.get(body.scale_id) or next(iter(scales.values()))
-    total = 0.0
-    weight_sum = 0.0
-    for item in scale["items"]:
-        w = float(item["weight"])
-        score = float(body.scores.get(item["key"], 70))
-        total += score * w
-        weight_sum += w
-    total_score = round(total / weight_sum, 2) if weight_sum else 0
-    level = (
-        "excellent"
-        if total_score >= 85
-        else "good"
-        if total_score >= 70
-        else "average"
-        if total_score >= 55
-        else "poor"
-    )
 
     assess = FitnessAssessment(
         user_id=user.id,

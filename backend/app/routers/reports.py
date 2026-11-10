@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models.entities import BehaviorReport, ExerciseSession
 
+from ..services.analysis import analysis_summary
+
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
@@ -12,4 +14,4 @@ def get_report(session_id: int, db: Session = Depends(get_db)):
     if not report:
         raise HTTPException(404, "报告不存在，请先结束运动会话")
     session = db.get(ExerciseSession, session_id)
-    return {"session": session, "report": report}
+    return {"session": session, "report": report, "analysis": analysis_summary(report.cot)}

@@ -321,6 +321,7 @@ export function buildPoseSummaryFromServer({
     canonical_format: "coco17",
     capture_format: "coco17",
     converter_version: "rtmpose_direct_v1",
+    motion_analysis: serverResult.motion_analysis || {},
     estimator: {
       ...estimator,
       runtime: "server_rtmpose",

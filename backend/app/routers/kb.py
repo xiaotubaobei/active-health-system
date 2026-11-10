@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models.entities import ExerciseSession, KbEntry, User
 from ..services.kb import kb_summary
+from ..services.analysis import analysis_summary
 
 router = APIRouter(prefix="/users", tags=["kb"])
 
@@ -13,7 +15,7 @@ def summary(user_id: int, limit: int = 20, db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(404, "用户不存在")
-    return kb_summary(db, user_id, limit=min(limit, 100))
+    return kb_summary(db, user_id, limit=max(1, min(limit, 100)))
 
 
 @router.get("/{user_id}/sessions")
@@ -25,7 +27,7 @@ def list_sessions(user_id: int, limit: int = 50, db: Session = Depends(get_db)):
         db.query(ExerciseSession)
         .filter(ExerciseSession.user_id == user_id)
         .order_by(ExerciseSession.id.desc())
-        .limit(min(limit, 200))
+        .limit(max(1, min(limit, 200)))
         .all()
     )
     return [
@@ -55,10 +57,19 @@ def list_entries(user_id: int, limit: int = 50, db: Session = Depends(get_db)):
         db.query(KbEntry)
         .filter(KbEntry.user_id == user_id)
         .order_by(KbEntry.id.desc())
-        .limit(min(limit, 200))
+        .limit(max(1, min(limit, 200)))
         .all()
     )
-    return rows
+    result = []
+    for row in rows:
+        entry = jsonable_encoder(row)
+        entry["analysis"] = analysis_summary(row.multimodal)
+        entry["score"] = entry["analysis"]["score"]
+        if entry["score"] is None:
+            entry["errors"] = []
+            entry["advice"] = ""
+        result.append(entry)
+    return result
 
 
 @router.delete("/{user_id}/kb")

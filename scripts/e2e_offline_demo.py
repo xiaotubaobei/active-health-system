@@ -82,7 +82,9 @@ def main() -> int:
         print("FAIL finish 无 report", done)
         return 1
 
-    print(f"OK  会话 #{sid} 报告 score={done['report'].get('cot', {}).get('score', '?')}")
+    analysis = done.get("analysis") or {}
+    print(f"OK  会话 #{sid} 评估状态={analysis.get('status')} 有效评分={analysis.get('score')}")
+    print(f"   归档 #{done.get('kb_entry_id')}；此脚本使用 mock 姿态，不验证真实算法。")
     print("\n离线演示链路已打通。浏览器: 运动页 → 离线视频 → 演示样本 → 开始/结束。")
     return 0
 

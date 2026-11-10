@@ -1,115 +1,75 @@
-"""端到端假闭环冒烟：登录 → 体适能 → 处方 → 会话 → CoT报告 → 处方版本+1"""
-import sys
-import time
+"""API 冒烟：新用户首次测评 → 模板处方 → 训练归档 → 重试 → 历史。
+
+使用独立测试账号，不修改 demo 用户的档案。AI 服务可不启动；
+演示 / 备用分数不计入模型成绩，训练结束不自动调整处方。
+"""
+from uuid import uuid4
+
 import httpx
 
 API = "http://127.0.0.1:8000"
-AI_PORTS = [8101, 8102, 8103, 8104, 8105, 8106, 8107]
-
-
-def wait_url(url: str, timeout: float = 30.0):
-    t0 = time.time()
-    last = None
-    while time.time() - t0 < timeout:
-        try:
-            r = httpx.get(url, timeout=2.0)
-            if r.status_code < 500:
-                return True
-        except Exception as e:
-            last = e
-        time.sleep(0.5)
-    raise RuntimeError(f"timeout waiting {url}: {last}")
 
 
 def main():
-    print("1) check API /health")
-    wait_url(f"{API}/health")
-    h = httpx.get(f"{API}/health", timeout=5).json()
-    print("   ", h)
+    with httpx.Client(base_url=API, timeout=30.0) as client:
+        def request(method, path, **kwargs):
+            response = client.request(method, path, **kwargs)
+            response.raise_for_status()
+            return response.json()
 
-    print("2) check AI stubs /health")
-    for p in AI_PORTS:
-        try:
-            r = httpx.get(f"http://127.0.0.1:{p}/health", timeout=2)
-            print(f"   :{p}", r.json().get("service") or r.json())
-        except Exception as e:
-            print(f"   :{p} DOWN ({e}) — backend will use local_fallback")
+        print("1) check API /health")
+        print("   ", request("GET", "/health"))
 
-    c = httpx.Client(base_url=API, timeout=30.0)
+        print("2) register a dedicated smoke-test account")
+        created = request("POST", "/auth/register", json={
+            "username": f"smoke-{uuid4().hex[:12]}",
+            "password": uuid4().hex, "privacy_consent": True,
+        })
+        uid = created["user"]["id"]
+        print("   user_id=", uid)
 
-    print("3) login")
-    login = c.post("/auth/login", json={"username": "demo", "password": "123456"}).json()
-    user = login["user"]
-    uid = user["id"]
-    print("   user_id=", uid, "role=", user["role"])
+        print("3) complete first assessment with all scale items")
+        scales = request("GET", "/fitness/scales")
+        scale = next(s for s in scales if s["id"] == "middle_elder")
+        onboard = request("POST", "/onboarding/complete", json={
+            "user_id": uid, "age_group": "middle_age",
+            "height_cm": 170, "weight_kg": 65, "goal": "fitness",
+            "privacy_consent": True, "scale_id": scale["id"],
+            "scores": {item["key"]: 70 for item in scale["items"]},
+        })
+        presc = onboard["prescription"]
+        assert onboard["baseline"]["total_score"] == 70
+        assert presc["version"] == 1
 
-    print("4) update profile")
-    c.put(
-        f"/users/me?user_id={uid}",
-        json={
-            "age_group": "middle_age",
-            "height_cm": 172,
-            "weight_kg": 78,
-            "goal": "fitness",
-            "chronic_tags": [],
-        },
-    )
+        print("4) start session")
+        started = request("POST", "/sessions/start", json={
+            "user_id": uid, "prescription_id": presc["id"],
+            "exercise_id": "squat", "exercise_name": "深蹲",
+        })
+        sid = started["session"]["id"]
 
-    print("5) fitness assess")
-    fit = c.post(
-        "/fitness/assess",
-        json={
-            "user_id": uid,
-            "scale_id": "middle_elder",
-            "scores": {"bmi": 80, "strength": 70, "flexibility": 65, "balance": 60},
-        },
-    ).json()
-    print("   total=", fit.get("total_score"), "level=", fit.get("level"))
+        print("5) finish and retry: one report, one archive, no prescription change")
+        body = {"video_path": "", "pose_summary": {"source": "smoke_test"}}
+        finished = request("POST", f"/sessions/{sid}/finish", json=body)
+        retried = request("POST", f"/sessions/{sid}/finish", json=body)
+        assert finished["report"]["id"] == retried["report"]["id"]
+        assert finished["kb_entry_id"] == retried["kb_entry_id"]
+        assert finished["updated_prescription"] is None
+        if finished["analysis"]["status"] != "model":
+            assert finished["analysis"]["score"] is None
+        current = request("GET", "/prescriptions/current", params={"user_id": uid})
+        assert current["id"] == presc["id"] and current["version"] == 1
 
-    print("6) generate prescription")
-    presc = c.post("/prescriptions/generate", json={"user_id": uid}).json()
-    pid = presc["id"]
-    v1 = presc["version"]
-    print("   prescription_id=", pid, "version=", v1, "status=", presc.get("status"))
-    print("   exercises=", [e.get("name") for e in (presc.get("exercises") or [])])
-
-    print("7) start session")
-    ex = (presc.get("exercises") or [{"id": "squat", "name": "深蹲"}])[0]
-    sess = c.post(
-        "/sessions/start",
-        json={
-            "user_id": uid,
-            "prescription_id": pid,
-            "exercise_id": ex["id"],
-            "exercise_name": ex.get("name", ex["id"]),
-        },
-    ).json()
-    sid = sess["session"]["id"]
-    print("   session_id=", sid)
-
-    print("8) finish session → CoT + prescription bump")
-    fin = c.post(
-        f"/sessions/{sid}/finish",
-        json={"video_path": "uploads/mock_session.mp4", "pose_summary": sess.get("pose_live") or {}},
-    ).json()
-    report = fin.get("report") or {}
-    cot = report.get("cot") or {}
-    new_p = fin.get("updated_prescription")
-    print("   cot.score=", cot.get("score"), "errors=", cot.get("errors"))
-    print("   cot.steps=", cot.get("steps"))
-    if not new_p:
-        print("FAIL: no updated_prescription")
-        sys.exit(1)
-    print("   new prescription version=", new_p.get("version"), "notes=", new_p.get("notes"))
-    if int(new_p.get("version", 0)) != int(v1) + 1:
-        print("FAIL: version not +1")
-        sys.exit(1)
-
-    print("9) fetch report by session")
-    reps = c.get(f"/reports/{sid}").json()
-    print("   ok keys=", list(reps.keys()) if isinstance(reps, dict) else type(reps))
-
-    print("\nSMOKE OK — 假闭环跑通")
+        print("6) read report and history")
+        report = request("GET", f"/reports/{sid}")
+        summary = request("GET", f"/users/{uid}/kb/summary")
+        sessions = request("GET", f"/users/{uid}/sessions")
+        assert report["report"]["id"] == finished["report"]["id"]
+        assert summary["kb_entries"] == summary["finished_sessions"] == len(sessions) == 1
+        if finished["analysis"]["status"] != "model":
+            assert summary["avg_score_recent"] is None
+        print("   session_id=", sid, "analysis=", finished["analysis"]["status"])
+        print("\nSMOKE OK — 注册、测评、训练归档与历史查询通过；未验证真实算法。")
 
 
 if __name__ == "__main__":

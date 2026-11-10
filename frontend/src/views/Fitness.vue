@@ -33,7 +33,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import api, { getUser } from "../api/client";
+import api, { errorMessage, getUser } from "../api/client";
 
 const user = getUser();
 const scales = ref([]);
@@ -48,7 +48,7 @@ const advice = computed(() => {
   const lv = result.value?.level;
   if (lv === "excellent") return "体适能较好，可按处方保持并逐步进阶。";
   if (lv === "good") return "整体达标，建议按处方完成，关注柔韧与平衡短板。";
-  if (lv === "average") return "中等水平，处方将采用中低强度，循序渐进。";
+  if (lv === "average") return "中等水平，建议结合实际情况向专业人员咨询运动强度。";
   if (lv === "poor") return "基础较弱，建议医疗/医师审核后再加大运动量。";
   return "";
 });
@@ -59,9 +59,11 @@ watch(current, (s) => {
 });
 
 onMounted(async () => {
-  const { data } = await api.get("/fitness/scales");
-  scales.value = data;
-  scaleId.value = data[0]?.id || "";
+  try {
+    const { data } = await api.get("/fitness/scales");
+    scales.value = data;
+    scaleId.value = data.find((s) => s.id === (user.age_group === "youth" ? "youth" : "middle_elder"))?.id || "";
+  } catch (error) { formErr.value = errorMessage(error, "量表加载失败，请刷新页面重试。"); }
 });
 
 function levelText(lv) {
@@ -74,8 +76,8 @@ async function submit() {
   const payload = {};
   for (const item of items) {
     const v = scores[item.key];
-    if (v === undefined || v === null || v === "") {
-      formErr.value = `请填写「${item.name}」`;
+    if (v === undefined || v === null || v === "" || !Number.isFinite(Number(v)) || v < 0 || v > 100) {
+      formErr.value = `请填写「${item.name}」的有效分数（0–100）`;
       return;
     }
     payload[item.key] = Number(v);
@@ -89,7 +91,7 @@ async function submit() {
     });
     result.value = data;
   } catch (e) {
-    formErr.value = e?.response?.data?.detail || "提交失败";
+    formErr.value = errorMessage(e, "提交失败");
   } finally {
     busy.value = false;
   }
