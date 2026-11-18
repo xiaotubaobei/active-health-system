@@ -8,6 +8,7 @@ from ..security import get_current_user, require_owner
 from ..models.entities import User, Prescription, ExerciseSession
 from ..schemas.dto import SessionFinishIn
 from ..services.prescription import pick_template
+from ..services.prescription_review import lock_owner
 from ..services.session_completion import complete_session
 
 router = APIRouter(prefix="/demo", tags=["demo"])
@@ -22,6 +23,7 @@ class DemoLoopIn(BaseModel):
 @router.post("/run-loop")
 async def run_loop(body: DemoLoopIn, actor: User = Depends(get_current_user), db: Session = Depends(get_db)):
     user = require_owner(body.user_id, actor)
+    lock_owner(db, user.id)
     if not user.onboarding_done:
         raise HTTPException(409, "请先完成首次测评")
     presc = db.query(Prescription).filter_by(user_id=user.id).order_by(Prescription.version.desc()).first()

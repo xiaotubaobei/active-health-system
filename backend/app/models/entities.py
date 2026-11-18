@@ -86,6 +86,26 @@ class Prescription(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class PrescriptionReview(Base):
+    """每次送审保留独立快照；唯一的非空 pending key 防止重复送审。"""
+    __tablename__ = "prescription_reviews"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prescription_id: Mapped[int] = mapped_column(ForeignKey("prescriptions.id"), index=True)
+    pending_prescription_id: Mapped[int | None] = mapped_column(Integer, nullable=True, unique=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    reviewer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    requester_name: Mapped[str] = mapped_column(String(64))
+    reviewer_name: Mapped[str] = mapped_column(String(64))
+    reviewer_role: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    prescription_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    profile_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    request_note: Mapped[str] = mapped_column(Text, default="")
+    decision_note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class ExerciseSession(Base):
     __tablename__ = "exercise_sessions"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

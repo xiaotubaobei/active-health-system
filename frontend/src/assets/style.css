@@ -173,3 +173,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   .side nav.open { display: block; margin-top: 12px; }
   .main { padding: 16px; }
 }
+/* 人工审核页面及用户侧记录共用。 */
+.review-item { border-top: 1px solid #dce5e9; padding: 16px 0; overflow-wrap: anywhere; }
+.review-item textarea { display: block; width: 100%; margin: 8px 0; }
+.review-item summary { cursor: pointer; padding: 8px 0; }
+.review-snapshot { padding: 8px 16px; background: #f5f8fa; border-radius: 8px; }

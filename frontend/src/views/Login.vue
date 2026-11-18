@@ -48,7 +48,8 @@ async function submit() {
       ...(registering.value ? { privacy_consent: consent.value } : {}),
     });
     setUser(data.user);
-    await router.push(data.user.onboarding_done ? "/" : "/onboarding");
+    const reviewer = ["physician", "prescription_specialist"].includes(data.user.role);
+    await router.push(reviewer ? "/reviews" : data.user.onboarding_done ? "/" : "/onboarding");
   } catch (error) { err.value = errorMessage(error, "操作失败，请确认后端已启动。"); }
   finally { busy.value = false; }
 }

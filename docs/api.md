@@ -8,7 +8,7 @@
 
 个人档案、首次测评、体测、体型解析、处方、训练、报告、设备、知识库及姿态推理均需登录。`user_id` 为兼容现有客户端保留，必须等于服务器识别的当前账号；它本身不能作为登录凭证。访问其他用户或其记录统一返回 404，缺少、伪造或过期凭证返回 401。目录类接口（量表、处方模板与状态流、公共演示视频）及 `/health` 公开。
 
-普通用户不能推进处方审核状态（403），修改本地缓存或提交 `role` 不能提权。医师与患者的授权关系和审核记录尚待实现；当前不支持跨用户审核。配置、迁移和验收详见 [authentication.md](authentication.md)。
+普通用户不能直接推进处方状态（403），修改本地缓存或提交 `role` 不能提权。跨用户审核只开放用户明确提交给指定人的资料快照，不开放其他个人接口。配置、迁移和验收详见 [authentication.md](authentication.md) 和 [prescription_review.md](prescription_review.md)。
 
 ## 业务
 
@@ -26,7 +26,12 @@
 - `GET /prescriptions/templates`
 - `POST /prescriptions/generate`
 - `GET /prescriptions/current?user_id=`
-- `POST /prescriptions/{id}/advance` 推进状态机
+- `POST /prescriptions/{id}/advance` 已停用，需走人工审核；本人普通账号403，有角色的本人409，其他人404
+- `POST /prescriptions/{id}/reviews` 提交审核
+- `GET /prescriptions/reviews/mine?offset=0&limit=50` 本人的送审记录
+- `GET /prescriptions/reviews/inbox?status=pending&offset=0&limit=50` 指定给当前审核人的记录
+- `POST /prescriptions/reviews/{id}/cancel` 本人撤回待审申请
+- `POST /prescriptions/reviews/{id}/decision` 指定审核人写入决定
 - `POST /sessions/start`
 - `GET /sessions/{id}?user_id=` 获取原训练及已保存的输入
 - `PUT /sessions/{id}/draft?user_id=` 保存未完成训练的姿态与视频引用
@@ -39,6 +44,14 @@
 - `GET /users/{user_id}/kb/entries?limit=50` 归档明细（最多 200 条）
 - `POST /demo/run-loop` `{user_id}` 演示训练归档，不写入假体测、不调整处方
 - `POST /devices/readings`
+
+## 人工审核接口
+
+送审请求为 `{reviewer_username, consent: true, request_note: "选填"}`。仅本人当前版 `pre_prescription|monitoring` 可送审；同版只允许一个待审申请。医疗模板需指定 `physician`，健身模板允许 `physician|prescription_specialist`，禁止自审。缺少明确同意或审核账号不可用返回400；重复送审、旧版或已正式通过返回409。
+
+`mine` 与 `inbox` 返回 `{total, items}`，`offset >= 0`、`limit` 为1–100。`mine` 包括本人全部申请状态；`inbox` 仅限当前仍具资格的指定审核人，`status` 可为 `pending|approved|rejected`，普通账号403。撤回或新版失效的申请不对审核人开放。
+
+审核决定为 `{decision: "approved"|"rejected", note: "必填意见"}`，意见去除空白后必须非空且最多2000字。通过只将原版标记为正式处方，退回不改原版。记录包含申请编号、双方编号和账号名、角色、状态、处方快照、档案/最近测评快照、提交说明、决定意见及UTC时间。已处理记录不能覆盖；用户可撤回待审申请，退回后可创建独立新申请。新版生成在同一事务内将旧待审记录标记为 `superseded`。
 
 ## 首次测评与分数校验
 

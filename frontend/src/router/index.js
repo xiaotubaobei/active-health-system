@@ -10,6 +10,7 @@ const routes = [
   { path: "/fitness", name: "fitness", component: () => import("../views/Fitness.vue") },
   { path: "/body", name: "body", component: () => import("../views/BodyParse.vue") },
   { path: "/prescription", name: "prescription", component: () => import("../views/Prescription.vue") },
+  { path: "/reviews", name: "reviews", component: () => import("../views/Reviews.vue") },
   { path: "/exercise", name: "exercise", component: () => import("../views/Exercise.vue") },
   { path: "/report", name: "report", component: () => import("../views/Report.vue") },
   { path: "/admin", name: "admin", component: () => import("../views/Admin.vue") },
@@ -25,7 +26,8 @@ router.beforeEach(async (to) => {
   try {
     const { data: user } = await api.get("/users/me", { timeout: 5000 });
     setUser(user);
-    if (to.path !== "/onboarding" && !user.onboarding_done) return "/onboarding";
+    const reviewerPage = to.path === "/reviews" && ["physician", "prescription_specialist"].includes(user.role);
+    if (to.path !== "/onboarding" && !reviewerPage && !user.onboarding_done) return "/onboarding";
   } catch (error) {
     if ([401, 404].includes(error?.response?.status)) {
       clearUser();

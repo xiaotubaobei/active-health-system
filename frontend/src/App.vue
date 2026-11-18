@@ -14,6 +14,7 @@
       <router-link to="/fitness">体适能评估</router-link>
       <router-link to="/body">体型解析</router-link>
       <router-link to="/prescription">运动处方</router-link>
+      <router-link to="/reviews">处方人工审核</router-link>
       <router-link to="/exercise">运动中监测</router-link>
       <router-link to="/report">运动后报告/CoT</router-link>
       <router-link to="/history">训练历史与知识库</router-link>

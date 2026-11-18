@@ -56,6 +56,17 @@ class PrescriptionGenerateIn(BaseModel):
     user_id: int
 
 
+class PrescriptionReviewIn(BaseModel):
+    reviewer_username: str = Field(min_length=2, max_length=64)
+    consent: bool = False
+    request_note: str = Field(default="", max_length=2000)
+
+
+class PrescriptionDecisionIn(BaseModel):
+    decision: Literal["approved", "rejected"]
+    note: str = Field(min_length=1, max_length=2000)
+
+
 class SessionStartIn(BaseModel):
     user_id: int
     exercise_id: str

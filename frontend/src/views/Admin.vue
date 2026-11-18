@@ -1,7 +1,8 @@
 <template>
   <div class="card">
     <h2>管理端</h2>
-    <p class="muted">对应申请书图14：服务供给 / 服务管理 / 数据管理占位。处方师改模板，医师写健康计划。</p>
+    <p class="muted">此页提供目录查看和本人的设备演示。处方师、医师请到「处方人工审核」处理用户提交的申请。</p>
+    <p><router-link to="/reviews">进入处方人工审核 →</router-link></p>
     <div class="row">
       <button @click="loadScales">体适能量表</button>
       <button class="secondary" @click="loadTemplates">处方模板</button>

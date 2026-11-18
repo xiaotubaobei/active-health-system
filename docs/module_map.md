@@ -15,8 +15,10 @@
 | 2.1.4 健身/医疗处方 表10/11 | `data/prescription_templates/` |
 | 图15 处方状态机 | `backend/app/services/prescription.py` |
 | 手环/设备接入 | `backend/app/routers/devices.py` |
-| 处方师/医师角色 | `User.role` + 管理端页面 |
+| 处方师/医师角色与人工审核 | `User.role` + `scripts/set_user_role.py` + `backend/app/routers/prescriptions.py` + `frontend/src/views/Reviews.vue` |
 
 ## 处方状态机（对齐图15）
 
 `clinical_intake` → `fitness_assessed` → `pre_prescription` → `monitoring` → `formal_prescription` → `implementing` → `feedback` →（可回写微调新版本）
+
+上行为申请书目标流程。当前实现支持模板预处方送审、人工通过后标记正式处方；训练与演示不自动推进其余阶段或回写微调。已实现的审核范围、角色开通和验收步骤见 [prescription_review.md](prescription_review.md)。

@@ -7,6 +7,7 @@ from ..models.entities import FitnessAssessment, FitnessBaseline, Prescription, 
 from ..schemas.dto import OnboardingCompleteIn
 from ..services.fitness import evaluate_scores
 from ..services.prescription import pick_template
+from ..services.prescription_review import lock_owner, supersede_pending
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
@@ -41,6 +42,7 @@ def status(user_id: int, user: User = Depends(owned_user), db: Session = Depends
 @router.post("/complete")
 def complete(body: OnboardingCompleteIn, actor: User = Depends(get_current_user), db: Session = Depends(get_db)):
     user = require_owner(body.user_id, actor)
+    lock_owner(db, user.id)
     if not user:
         raise HTTPException(404, "用户不存在")
     if not body.privacy_consent:
@@ -88,6 +90,7 @@ def complete(body: OnboardingCompleteIn, actor: User = Depends(get_current_user)
 
     prescription = None
     if body.generate_prescription:
+        supersede_pending(db, user.id)
         last = (
             db.query(Prescription)
             .filter(Prescription.user_id == user.id)
