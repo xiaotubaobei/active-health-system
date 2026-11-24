@@ -3,6 +3,8 @@
   <div class="card">
 
     <h2>运动中监测</h2>
+    <p v-if="planTarget" class="muted">训练计划 v{{ planTarget.version }} · {{ planTarget.exercise.name }} · 目标 {{ planTarget.exercise.sets }}组 × {{ planTarget.exercise.reps }}{{ planTarget.exercise.unit || '次' }}。这是计划目标，不代表已完成量。</p>
+    <p v-if="planTarget && planTarget.status !== 'formal_prescription'" class="muted">此计划尚未人工审核通过。</p>
     <p v-if="session" class="muted">训练 #{{ session.id }} 已保存。刷新或离开后，可从训练历史继续。</p>
     <p v-if="savedPayload" class="ok">已恢复原训练及保存的姿态数据，可直接结束生成报告。视频预览需重新选择文件；摄像头需重新打开。</p>
     <router-link to="/history">查看训练历史 / 找回未完成训练</router-link>
@@ -232,6 +234,12 @@ const exerciseId = ref("squat");
 const session = ref(null);
 
 const prescriptionId = ref(0);
+const loadedPlan = ref(null);
+const planLinkError = ref(false);
+const planTarget = computed(() => session.value
+  ? (session.value.plan_snapshot?.exercise ? session.value.plan_snapshot : null)
+  : loadedPlan.value && exercises.value.some(e => e.id === exerciseId.value) && { version: loadedPlan.value.version, status: loadedPlan.value.status,
+      exercise: exercises.value.find(e => e.id === exerciseId.value) });
 
 const videoEl = ref(null);
 
@@ -488,6 +496,7 @@ async function replayWithPose() {
 }
 
 const canStart = computed(() => {
+  if (planLinkError.value) return false;
 
   if (inputMode.value === "video") {
     return (
@@ -518,6 +527,7 @@ onMounted(async () => {
     const cur = await api.get(`/prescriptions/current?user_id=${user.id}`);
 
     prescriptionId.value = cur.data.id;
+    loadedPlan.value = cur.data;
 
     if (cur.data.exercises?.length) {
 
@@ -528,6 +538,18 @@ onMounted(async () => {
     }
 
   } catch {}
+
+  if (route.query.prescription_id) {
+    if (String(loadedPlan.value?.id) !== String(route.query.prescription_id)) {
+      planLinkError.value = true;
+      throw new Error('训练计划已更新或无法读取，请返回训练计划重新选择。');
+    }
+    if (!exercises.value.some(e => e.id === route.query.exercise_id)) {
+      planLinkError.value = true;
+      throw new Error('该动作不在当前训练计划中，请返回重新选择。');
+    }
+    exerciseId.value = route.query.exercise_id;
+  }
 
   try {
 
@@ -580,6 +602,7 @@ onMounted(async () => {
 });
 
 async function restoreSession() {
+  if (route.query.prescription_id && !route.query.session_id) return;
   const raw = route.query.session_id || localStorage.getItem("ah_last_session");
   if (!raw) return;
   if (!/^\d+$/.test(String(raw)) || Number(raw) < 1) {
@@ -889,6 +912,7 @@ function stopCam() {
 
 
 async function start() {
+  if (planLinkError.value) return;
 
   err.value = "";
 

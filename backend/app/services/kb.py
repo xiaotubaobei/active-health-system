@@ -79,8 +79,8 @@ def append_kb_entry(
     note = (history_compare_note(db, session.user_id, score, session.exercise_id)
             if score is not None else "训练已归档；尚无有效模型评估，不参与分数比较。")
 
-    presc_ver = 0
-    if session.prescription_id:
+    presc_ver = (session.plan_snapshot or {}).get("version", 0)
+    if session.prescription_id and not presc_ver:
         p = db.get(Prescription, session.prescription_id)
         if p:
             presc_ver = p.version

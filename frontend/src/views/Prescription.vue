@@ -29,6 +29,7 @@
         <li v-for="e in current.exercises || []" :key="e.id + e.name">
           <span>{{ e.name }} <span class="tag gray">{{ e.category || "训练" }}</span></span>
           <span>{{ e.sets }}组 × {{ e.reps }}{{ e.unit || "次" }}</span>
+          <router-link :to="{ path: '/exercise', query: { prescription_id: current.id, exercise_id: e.id } }">练这个动作</router-link>
         </li>
       </ul>
       <h3>综合健康计划（医师占位）</h3>

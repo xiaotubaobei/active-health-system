@@ -111,6 +111,7 @@ class ExerciseSession(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     prescription_id: Mapped[int] = mapped_column(Integer, default=0)
+    plan_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
     exercise_id: Mapped[str] = mapped_column(String(64))
     exercise_name: Mapped[str] = mapped_column(String(128), default="")
     status: Mapped[str] = mapped_column(String(32), default="running")

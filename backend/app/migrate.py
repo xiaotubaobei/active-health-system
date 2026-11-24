@@ -36,6 +36,8 @@ def migrate_schema() -> None:
 
 def _migrate_sqlite_columns() -> None:
     insp = inspect(engine)
+    if "exercise_sessions" in insp.get_table_names():
+        _add_col("exercise_sessions", "plan_snapshot", "plan_snapshot JSON DEFAULT '{}'")
     if "users" in insp.get_table_names():
         _add_col("users", "privacy_consent", "privacy_consent BOOLEAN DEFAULT 0")
         _add_col("users", "onboarding_done", "onboarding_done BOOLEAN DEFAULT 0")

@@ -19,16 +19,25 @@ async def start(body: SessionStartIn, actor: User = Depends(get_current_user), d
     if not user.onboarding_done:
         raise HTTPException(409, "请先完成首次测评")
     media_path(body.video_path, actor.id)
+    plan_snapshot = {}
+    exercise_name = body.exercise_name or body.exercise_id
     if body.prescription_id:
         prescription = db.get(Prescription, body.prescription_id)
         if not prescription or prescription.user_id != user.id:
             raise HTTPException(400, "处方不属于当前用户")
+        exercise = next((e for e in prescription.exercises or [] if e.get("id") == body.exercise_id), None)
+        if not exercise:
+            raise HTTPException(400, "所选动作不在这份训练计划中，请重新选择")
+        exercise_name = exercise.get("name") or body.exercise_id
+        plan_snapshot = {"prescription_id": prescription.id, "version": prescription.version,
+                         "status": prescription.status, "exercise": exercise}
     pose = body.pose_summary or await ai_client.pose_infer({"exercise_id": body.exercise_id})
     row = ExerciseSession(
         user_id=user.id,
         prescription_id=body.prescription_id,
         exercise_id=body.exercise_id,
-        exercise_name=body.exercise_name or body.exercise_id,
+        exercise_name=exercise_name,
+        plan_snapshot=plan_snapshot,
         status="running",
         pose_summary=pose,
         video_path=body.video_path,
