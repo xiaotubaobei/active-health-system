@@ -77,6 +77,7 @@ class SessionStartIn(BaseModel):
 
 
 class SessionFinishIn(BaseModel):
+    expected_revision: int | None = Field(default=None, ge=0)
     video_path: str = ""
     pose_summary: dict[str, Any] = Field(default_factory=dict)
 

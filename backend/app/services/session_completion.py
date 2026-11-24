@@ -52,7 +52,9 @@ async def complete_session(db: Session, session_id: int, body: SessionFinishIn, 
     try:
         claimed = db.execute(
             update(ExerciseSession)
-            .where(ExerciseSession.id == session_id, ExerciseSession.status == "running")
+            .where(ExerciseSession.id == session_id, ExerciseSession.status == "running",
+                   *([ExerciseSession.draft_revision == body.expected_revision]
+                     if body.expected_revision is not None else []))
             .values(status="finishing")
             .execution_options(synchronize_session=False)
         )
@@ -61,7 +63,7 @@ async def complete_session(db: Session, session_id: int, body: SessionFinishIn, 
             previous = _completed(db, db.get(ExerciseSession, session_id))
             if previous:
                 return previous
-            raise HTTPException(409, "训练正在归档，请稍后重试")
+            raise HTTPException(409, "训练正在归档或已被其他页面更新，请重新打开训练核对")
 
         session.status = "finished"
         session.video_path = video_path

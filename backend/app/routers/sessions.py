@@ -80,12 +80,15 @@ def cancel(session_id: int, user_id: int, actor: User = Depends(owned_user), db:
 def save_draft(session_id: int, user_id: int, body: SessionFinishIn, actor: User = Depends(owned_user), db: Session = Depends(get_db)):
     row = owned_session(db, session_id, user_id)
     media_path(body.video_path, actor.id)
+    revision = body.expected_revision if body.expected_revision is not None else row.draft_revision
     changed = db.execute(update(ExerciseSession).where(
-        ExerciseSession.id == session_id, ExerciseSession.status == "running"
-    ).values(video_path=body.video_path, pose_summary=body.pose_summary).execution_options(synchronize_session=False))
+        ExerciseSession.id == session_id, ExerciseSession.status == "running",
+        ExerciseSession.draft_revision == revision
+    ).values(video_path=body.video_path, pose_summary=body.pose_summary,
+             draft_revision=ExerciseSession.draft_revision + 1).execution_options(synchronize_session=False))
     if changed.rowcount != 1:
         db.rollback()
-        raise HTTPException(409, "当前训练已结束，不能修改")
+        raise HTTPException(409, "训练已结束或已被其他页面更新，请重新打开训练核对，避免覆盖数据")
     db.commit()
     db.refresh(row)
     return {"session": row}

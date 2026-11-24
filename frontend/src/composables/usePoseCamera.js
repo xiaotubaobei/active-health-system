@@ -26,7 +26,7 @@ function angle(a, b, c) {
 
 
 
-export function createPoseCamera({ video, canvas, onHint }) {
+export function createPoseCamera({ video, canvas, onHint, onFrame }) {
 
   let stream = null;
 
@@ -118,6 +118,7 @@ export function createPoseCamera({ video, canvas, onHint }) {
 
         if (lm) {
 
+          onFrame?.(lm);
           drawSkeleton(ctx, lm, w, h, true);
 
           const kneeL = angle(lm[23], lm[25], lm[27]);

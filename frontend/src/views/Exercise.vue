@@ -6,7 +6,15 @@
     <p v-if="planTarget" class="muted">训练计划 v{{ planTarget.version }} · {{ planTarget.exercise.name }} · 目标 {{ planTarget.exercise.sets }}组 × {{ planTarget.exercise.reps }}{{ planTarget.exercise.unit || '次' }}。这是计划目标，不代表已完成量。</p>
     <p v-if="planTarget && planTarget.status !== 'formal_prescription'" class="muted">此计划尚未人工审核通过。</p>
     <p v-if="session" class="muted">训练 #{{ session.id }} 已保存。刷新或离开后，可从训练历史继续。</p>
-    <p v-if="savedPayload" class="ok">已恢复原训练及保存的姿态数据，可直接结束生成报告。视频预览需重新选择文件；摄像头需重新打开。</p>
+    <p v-if="savedPayload" class="ok">已有训练输入保存在服务端，可继续训练或结束生成报告。视频预览需重新选择文件；摄像头需重新打开。</p>
+    <div v-if="session" role="status">
+      <p>{{ saving ? '正在保存…' : draftDirty ? '有数据尚未保存' : saveState || '训练已建立' }}<span v-if="lastSavedAt"> · 最近保存 {{ lastSavedAt }}</span></p>
+      <p v-if="saveError" role="alert">{{ saveError }}</p>
+      <p v-if="inputMode === 'camera'">已采集 {{ cameraFrames.length }} / 1200 帧<span v-if="cameraFrames.length >= captureLimit">；已达到上限，请结束并保存本次训练。</span></p>
+      <button class="secondary" :disabled="busy || saving || draftConflict" @click="retrySave">立即保存 / 重试</button>
+      <router-link v-if="draftConflict" :to="{ path: '/history' }">返回记录核对训练</router-link>
+      <p class="muted">摄像头姿态每秒最多采样2帧，每10秒自动保存。未保存的数据在刷新后可能丢失；不会保存摄像头原视频。每次最多采集1200帧，约10分钟；达到上限后请结束本次训练。</p>
+    </div>
     <router-link to="/history">查看训练历史 / 找回未完成训练</router-link>
 
     <p class="muted">
@@ -196,6 +204,7 @@
 
 <script setup>
 
+import { onBeforeRouteLeave } from "vue-router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { useRoute, useRouter } from "vue-router";
@@ -217,6 +226,7 @@ import {
   drawCoco17Skeleton,
   hintFromAngles,
   mp33FrameToCoco17Keypoints,
+  landmarksToMp33Frame,
 } from "../utils/poseFormat";
 
 
@@ -226,6 +236,32 @@ const user = getUser();
 const router = useRouter();
 const route = useRoute();
 const savedPayload = ref(null);
+const cameraFrames = ref([]);
+const captureLimit = 1200;
+const saveState = ref(''), saveError = ref(''), lastSavedAt = ref('');
+const draftDirty = ref(false), draftConflict = ref(false), saving = ref(false);
+let changeVersion = 0, savePromise = null, autosaveTimer = null, lastCapture = 0;
+let cameraOffset = 0, cameraBase = 0;
+function captureFrame(landmarks) {
+  if (!session.value || busy.value || inputMode.value !== 'camera') return;
+  const now = performance.now();
+  if (now - lastCapture < 500) return;
+  lastCapture = now;
+  if (cameraFrames.value.length >= captureLimit) {
+    poseHint.value = '已达到1200帧采集上限，请结束并保存，再开始新的训练。';
+    return;
+  }
+  cameraOffset = Math.round(now - cameraBase);
+  cameraFrames.value.push(landmarksToMp33Frame(landmarks, cameraOffset, cameraFrames.value.length));
+  changeVersion++;
+  draftDirty.value = true;
+}
+function beforeUnload(event) {
+  if (session.value && (draftDirty.value || saving.value)) { event.preventDefault(); event.returnValue = ''; }
+}
+function retrySave() { persistDraft().catch(() => {}); }
+function onVisibility() { if (document.hidden && draftDirty.value && !busy.value) retrySave(); }
+
 
 const exercises = ref([]);
 
@@ -623,7 +659,13 @@ async function restoreSession() {
     exerciseId.value = row.exercise_id;
     if (!exercises.value.some(e => e.id === row.exercise_id)) exercises.value.push({ id: row.exercise_id, name: row.exercise_name });
     prescriptionId.value = row.prescription_id;
-    inputMode.value = row.pose_summary?.source === "camera_live_only" ? "camera" : "video";
+    inputMode.value = ['camera_live_only', 'camera'].includes(row.pose_summary?.source) ? 'camera' : 'video';
+    if (inputMode.value === 'camera') {
+      cameraFrames.value = row.pose_summary?.sequences?.mediapipe33?.frames || [];
+      cameraOffset = cameraFrames.value.at(-1)?.t_ms || 0;
+    }
+    lastSavedAt.value = '';
+    draftDirty.value = false;
     savedPayload.value = { video_path: row.video_path || "", pose_summary: row.pose_summary || {} };
     hint.value = "已恢复未完成训练；保存的数据将用于生成报告。";
     localStorage.setItem("ah_last_session", String(row.id));
@@ -863,12 +905,15 @@ async function startCam() {
 
   try {
 
+    cameraBase = performance.now() - cameraOffset;
+    lastCapture = 0;
     cameraCtl = createPoseCamera({
 
       video: videoEl.value,
 
       canvas: canvasEl.value,
 
+      onFrame: captureFrame,
       onHint: (t) => {
 
         poseHint.value = t;
@@ -887,6 +932,7 @@ async function startCam() {
 
   } catch (e) {
 
+    stopCam();
     err.value = "无法打开摄像头：" + (e?.message || "请检查权限");
 
   }
@@ -936,6 +982,9 @@ async function start() {
     });
 
     session.value = data.session;
+    cameraFrames.value = []; cameraOffset = 0;
+    savedPayload.value = buildSubmission();
+    draftDirty.value = false;
     await router.replace({ path: "/exercise", query: { session_id: data.session.id } });
 
     hint.value =
@@ -965,6 +1014,14 @@ async function start() {
 
 
 function buildSubmission() {
+  if (inputMode.value === 'camera' && cameraFrames.value.length) {
+    return { video_path: '', pose_summary: buildPoseSummary({
+      sessionId: session.value?.id, exerciseId: exerciseId.value,
+      exerciseName: session.value?.exercise_name || exerciseId.value,
+      mpFrames: cameraFrames.value, source: 'camera',
+      width: videoEl.value?.videoWidth || 640, height: videoEl.value?.videoHeight || 480,
+    }) };
+  }
   if (savedPayload.value && !serverPoseResult.value?.coco17_frames?.length && !mpFrames.value.length && !camOn.value) return savedPayload.value;
     const name = exercises.value.find((e) => e.id === exerciseId.value)?.name || exerciseId.value;
 
@@ -1049,10 +1106,34 @@ function buildSubmission() {
 
 async function persistDraft() {
   if (!session.value) return;
-  const submission = buildSubmission();
-  await api.put(`/sessions/${session.value.id}/draft`, submission, { params: { user_id: user.id } });
-  savedPayload.value = submission;
+  if (draftConflict.value) throw new Error('请重新打开训练，核对其他页面保存的内容。');
+  if (savePromise) { await savePromise; return persistDraft(); }
+  const id = session.value.id, version = changeVersion;
+  // Freeze the payload: camera capture may continue while the request is in flight.
+  const submission = JSON.parse(JSON.stringify(buildSubmission()));
+  saving.value = true; saveError.value = ''; saveState.value = '正在保存…';
+  savePromise = (async () => {
+    try {
+      const { data } = await api.put(`/sessions/${id}/draft`, {
+        ...submission, expected_revision: session.value.draft_revision || 0,
+      }, { params: { user_id: user.id } });
+      if (session.value?.id !== id) return;
+      session.value.draft_revision = data.session.draft_revision;
+      savedPayload.value = submission;
+      draftDirty.value = changeVersion !== version;
+      lastSavedAt.value = new Date().toLocaleTimeString();
+      saveState.value = '已保存';
+    } catch (e) {
+      draftDirty.value = true;
+      draftConflict.value = e?.response?.status === 409;
+      saveError.value = errorMessage(e, '保存失败，数据暂留在当前页面，请保持页面打开并重试。');
+      saveState.value = '尚未保存';
+      throw e;
+    } finally { saving.value = false; }
+  })();
+  try { await savePromise; } finally { savePromise = null; }
 }
+
 
 async function finish() {
 
@@ -1064,11 +1145,12 @@ async function finish() {
 
   try {
 
+    await persistDraft();
     const submission = buildSubmission();
 
     const { data } = await api.post(`/sessions/${session.value.id}/finish`, {
 
-      ...submission,
+      ...submission, expected_revision: session.value.draft_revision || 0,
 
     });
 
@@ -1084,7 +1166,17 @@ async function finish() {
 
   } catch (e) {
 
-    err.value = e?.response?.data?.detail || "结束会话失败";
+    // A timed-out finish may already have committed. Recover its report instead of creating another session.
+    try {
+      const { data } = await api.get(`/sessions/${session.value.id}`, { params: { user_id: user.id } });
+      if (data.session.status === 'finished') {
+        const id = session.value.id;
+        session.value = null; draftDirty.value = false; stopCam();
+        await router.push({ path: '/report', query: { session_id: id } });
+        return;
+      }
+    } catch { /* retain the original error and local data */ }
+    err.value = errorMessage(e, '结束训练失败，数据保留在当前页面。请重试结束，不要重新开始训练。');
 
   } finally {
 
@@ -1096,7 +1188,24 @@ async function finish() {
 
 
 
+onMounted(() => {
+  window.addEventListener('beforeunload', beforeUnload);
+  window.addEventListener('online', retrySave);
+  document.addEventListener('visibilitychange', onVisibility);
+  autosaveTimer = setInterval(() => {
+    if (session.value && draftDirty.value && !busy.value && !saving.value && !draftConflict.value) retrySave();
+  }, 10000);
+});
+onBeforeRouteLeave(() => {
+  if (session.value && (draftDirty.value || saving.value)) {
+    return window.confirm('还有训练数据没有保存。离开会丢失这些数据，确定离开吗？');
+  }
+});
 onBeforeUnmount(() => {
+  clearInterval(autosaveTimer);
+  window.removeEventListener('beforeunload', beforeUnload);
+  window.removeEventListener('online', retrySave);
+  document.removeEventListener('visibilitychange', onVisibility);
   stopPosePlayback();
   stopCam();
   if (localObjectUrl) {

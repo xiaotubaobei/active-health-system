@@ -1,5 +1,15 @@
 # 核心 API（框架版）
 
+## 训练草稿与恢复
+
+`GET /sessions/{id}?user_id=本人ID` 返回训练和当前 `draft_revision`。
+
+`PUT /sessions/{id}/draft?user_id=本人ID` 接收 `video_path`、`pose_summary` 和可选非负 `expected_revision`。新前端必须传入读取到的版本；保存成功返回新版本。状态不再是 running 或版本冲突返回409，不应盲目重传旧数据覆盖，应重新读取训练核对。
+
+`POST /sessions/{id}/finish` 同样支持 `expected_revision`，归档时检查版本。已完成训练重复结束仍返回原报告；请求超时后可先查询状态，已完成则打开原报告。取消训练或结束训练后，草稿保存会被拒绝。
+
+摄像头采样由前端产生 MediaPipe-33 与转换后的 COCO-17 序列，每10秒保存完整快照，单次最多1200帧。仅在实际检测到人体时产生帧；没有检测结果不会补造姿态、动作次数或有效评分。版本列由 SQLite 启动迁移补齐，旧记录从0开始。
+
 ## 登录与访问权限
 
 注册密码为 8–128 字符，用户名为 2–64 字符；注册只能创建普通用户，`role=admin|physician|prescription_specialist` 返回 422。`demo`、`specialist`、`physician`、`admin` 为保留名称。演示账号默认关闭，仅显式设置 `ENABLE_DEMO_ACCOUNTS=true` 后允许 `demo / 123456` 登录，权限仍是普通用户。
