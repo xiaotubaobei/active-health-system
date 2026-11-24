@@ -1,0 +1,28 @@
+{$SITE_DOMAIN} {
+	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		Permissions-Policy "camera=(self), microphone=()"
+		X-Frame-Options DENY
+	}
+
+	redir /api /api/ 308
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv
+		# Missing JS/WASM must be 404, never an HTML app response.
+		@assets path /assets/* /models/* /wasm/*
+		handle @assets {
+			file_server
+		}
+		handle {
+			try_files {path} /index.html
+			header Cache-Control "no-cache"
+			file_server
+		}
+	}
+}

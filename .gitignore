@@ -25,6 +25,7 @@ credentials.json
 active_health.db
 uploads/*
 !uploads/.gitkeep
+backups/
 
 # Large datasets / demo media (download separately)
 data/datasets/

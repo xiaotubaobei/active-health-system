@@ -1,0 +1,23 @@
+# Only application sources and the two small catalog directories enter images.
+**
+!backend/
+!backend/**
+!frontend/
+!frontend/**
+!data/
+!data/fitness_scales/
+!data/fitness_scales/**
+!data/prescription_templates/
+!data/prescription_templates/**
+!deploy/
+!deploy/Caddyfile
+!scripts/
+!scripts/set_user_role.py
+backend/**/__pycache__/
+backend/.venv/
+frontend/node_modules/
+frontend/dist/
+**/.env
+**/.env.*
+**/*.db
+**/*.pyc

@@ -94,9 +94,9 @@
 
     <div class="row" v-else>
 
-      <button @click="startCam" :disabled="camOn || busy">打开摄像头</button>
+      <button @click="startCam" :disabled="camOn || cameraStarting || busy">{{ cameraStarting ? '正在打开摄像头…' : '打开摄像头' }}</button>
 
-      <button class="secondary" @click="stopCam" :disabled="!camOn">关闭摄像头</button>
+      <button class="secondary" @click="stopCam" :disabled="!camOn && !cameraStarting">关闭摄像头</button>
 
     </div>
 
@@ -368,6 +368,7 @@ const demoVideosFiltered = computed(() => {
 });
 
 const camOn = ref(false);
+const cameraStarting = ref(false);
 
 const previewOn = ref(false);
 
@@ -900,6 +901,9 @@ async function runVideoProcess() {
 
 
 async function startCam() {
+  if (cameraStarting.value || camOn.value) return;
+  cameraStarting.value = true;
+  let controller;
 
   err.value = "";
 
@@ -922,7 +926,9 @@ async function startCam() {
 
     });
 
-    await cameraCtl.start();
+    controller = cameraCtl;
+    const opened = await controller.start();
+    if (!opened || cameraCtl !== controller) return;
 
     camOn.value = true;
 
@@ -932,8 +938,11 @@ async function startCam() {
 
   } catch (e) {
 
+    if (controller && cameraCtl !== controller) return;
     stopCam();
     err.value = "无法打开摄像头：" + (e?.message || "请检查权限");
+  } finally {
+    if (cameraCtl === controller) cameraStarting.value = false;
 
   }
 
@@ -942,6 +951,7 @@ async function startCam() {
 
 
 function stopCam() {
+  cameraStarting.value = false;
 
   cameraCtl?.stop();
 

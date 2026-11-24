@@ -25,7 +25,11 @@ export async function getPoseLandmarker() {
       } catch {
         return await createLandmarker("CPU");
       }
-    })();
+    })().catch(error => {
+      // A failed network request must not poison all subsequent camera retries.
+      landmarkerPromise = null;
+      throw error;
+    });
   }
   return landmarkerPromise;
 }

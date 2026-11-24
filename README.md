@@ -4,7 +4,9 @@
 
 导师演示说明见 [docs/advisor_v1.md](docs/advisor_v1.md)。
 
-两位实习生分别使用 `a`、`b` 分支，具体任务、文件归属、首周验收与手机端路线见 [docs/intern_tasks_and_mobile_plan.md](docs/intern_tasks_and_mobile_plan.md)。本轮交接统一包含处方人工审核功能；手机端部署仍是后续任务。
+两位实习生分别使用 `a`、`b` 分支，具体任务、文件归属、首周验收与手机端路线见 [docs/intern_tasks_and_mobile_plan.md](docs/intern_tasks_and_mobile_plan.md)。本轮交接统一包含处方人工审核功能。
+
+手机试用的 HTTPS 部署配置、数据保留、备份和验收步骤见 [docs/mobile_deployment.md](docs/mobile_deployment.md)。服务器部署与真机验收尚未完成。
 
 本轮进展与验收步骤见 [docs/progress_20261110.md](docs/progress_20261110.md)：已接通注册、首次测评、训练归档、报告回看、未完成训练恢复与取消、历史分页和筛选；后端验证登录身份，个人数据和上传视频按账号隔离。演示分数不参与成绩统计，训练结束不自动修改处方。
 
@@ -72,7 +74,9 @@ python scripts\smoke_test.py
 
 保存使用版本检查，其他页面更新后会停止覆盖并提示核对。结束训练先保存输入；响应丢失时检查已生成报告。更新后需重启后端以补齐 SQLite 的训练保存版本列。真机摄像头、模型下载和网络兼容仍需单独验收。
 
-训练页保存逻辑检查：`node --test frontend/tests/training-save.test.mjs`（替代网络和摄像头边界，不代表真机验收）。
+摄像头现支持取消加载，离开页面后会释放晚到的权限请求；修正骨架重复镜像，模型下载失败后可关闭重开摄像头重试。
+
+训练保存与摄像头生命周期检查：`node --test frontend/tests/*.test.mjs`（替代网络和摄像头边界，不代表真机验收）。
 
 在项目根目录运行后端检查（测试使用临时数据库，不修改现有库）：
 
