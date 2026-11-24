@@ -98,6 +98,8 @@ npm run build
 
 ## 离线视频验证（RepCount + InfiniteRep，无需摄像头）
 
+标准部署默认在浏览器解析本地视频，不需要另启 RTMPose；上限100MB、3分钟，解析中可取消。建议先用10～30秒的MP4全身动作片段。本地开发可在 `frontend/.env` 设置 `VITE_POSE_OFFLINE=browser`，重启前端后生效；保留 `server` 则需单独启动 RTMPose。
+
 首次或更新数据集后：
 
 ```powershell

@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { createCaptureClock } from '../src/utils/captureClock.js';
+import { validateVideoFile, checkAborted } from '../src/utils/videoInput.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 // Run the actual page logic with browser/network boundaries replaced. No camera or health data is needed.
-function page(put, post, get, cameraReady = () => true) {
+function page(put, post, get, cameraReady = () => true, processVideoFile) {
   const source = readFileSync(new URL('../src/views/Exercise.vue', import.meta.url), 'utf8')
     .split('<script setup>')[1].split('</script>')[0]
     .replace(/import[\s\S]*?from\s*["'][^"']+["'];/g, '');
@@ -21,17 +22,46 @@ function page(put, post, get, cameraReady = () => true) {
     isOfflineRtmpose: () => false, performance: { now: () => now },
     landmarksToMp33Frame: (landmarks, t_ms, frame_index) => ({ landmarks, t_ms, frame_index }),
     buildPoseSummary: ({ mpFrames }) => ({ source: 'camera', sequences: { mediapipe33: { frames: mpFrames } } }),
-    Date, JSON, console,
+    Date, JSON, console, AbortController, validateVideoFile, checkAborted, processVideoFile,
   });
   vm.runInContext(source + `\n globalThis.check = { captureFrame, persistDraft,
     session, busy, inputMode, cameraFrames, draftDirty, draftConflict, saveError, saving,
     start, pendingStartBody, camOn, poseReady, paused, pauseCapture, syncClock, activeMs, savedPayload, buildSubmission,
-    loadRecommendedDemo, demoVideos, demoPickId, exerciseId, recommendedDemo, err, resumeCapture };`, context);
+    loadRecommendedDemo, demoVideos, demoPickId, exerciseId, recommendedDemo, err, resumeCapture,
+    runVideoProcess, cancelVideoProcessing, videoFile, videoProcessing, hint, mpFrames, previewOn };`, context);
   const c = context.check;
   c.session.value = { id: 1, draft_revision: 0 };
   c.busy.value = false; c.inputMode.value = 'camera';
   return { c, tick: delta => { now += delta; } };
 }
+
+test('cancelling page video parsing releases busy state and allows a new attempt', async () => {
+  let attempts = 0;
+  const { c } = page(undefined, undefined, undefined, undefined, ({ signal }) => {
+    attempts++;
+    if (attempts === 2) throw new Error('视频中未检测到人体');
+    return new Promise((resolve, reject) => signal.addEventListener('abort', () => {
+      try { checkAborted(signal); } catch (error) { reject(error); }
+    }, { once: true }));
+  });
+  c.session.value = null; c.inputMode.value = 'video';
+  c.videoFile.value = { size: 100, type: 'video/mp4', name: 'test.mp4' };
+  const pending = c.runVideoProcess();
+  assert.equal(c.busy.value, true);
+  assert.equal(c.videoProcessing.value, true);
+  c.cancelVideoProcessing();
+  await pending;
+  assert.equal(c.busy.value, false);
+  assert.equal(c.videoProcessing.value, false);
+  assert.equal(c.previewOn.value, false);
+  assert.equal(c.mpFrames.value.length, 0);
+  assert.match(c.hint.value, /已取消/);
+  assert.equal(c.err.value, '');
+  await c.runVideoProcess();
+  assert.equal(attempts, 2);
+  assert.match(c.err.value, /未检测到人体/);
+  assert.equal(c.busy.value, false);
+});
 
 test('camera sampling, immutable upload, and frames arriving during save', async () => {
   let resolve, sent;

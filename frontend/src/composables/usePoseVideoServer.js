@@ -16,6 +16,7 @@ export async function processVideoServer({
   sampleHz = 6,
   exerciseId,
   onProgress,
+  signal,
 }) {
   onProgress?.({ phase: "scan", progress: 0.05, message: "服务端 RTMPose 解析中（首次可能下载权重）…" });
 
@@ -24,7 +25,7 @@ export async function processVideoServer({
     const { data: resp } = await api.post(
       "/pose/infer-video",
       { video_path: videoPathRel, sample_hz: sampleHz, exercise_id: exerciseId },
-      { timeout: 600000 },
+      { timeout: 600000, signal },
     );
     data = resp;
   } else if (file) {
@@ -34,6 +35,7 @@ export async function processVideoServer({
     if (exerciseId) form.append("exercise_id", exerciseId);
     const { data: resp } = await api.post("/pose/infer-video-upload", form, {
       timeout: 600000,
+      signal,
       headers: { "Content-Type": "multipart/form-data" },
     });
     data = resp;

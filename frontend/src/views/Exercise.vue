@@ -79,6 +79,8 @@
       />
 
       <span class="muted" v-if="videoLabel">{{ videoLabel }} · {{ mpFrameCount }} 姿态帧</span>
+      <span class="muted">视频不超过100MB；浏览器解析限3分钟，建议先用10～30秒全身动作片段。</span>
+      <button v-if="videoProcessing" class="secondary" @click="cancelVideoProcessing">取消解析</button>
 
       <button
         class="secondary"
@@ -223,6 +225,7 @@ import { processVideoFile } from "../composables/usePoseVideoFile";
 import { processVideoServer } from "../composables/usePoseVideoServer";
 
 import { createCaptureClock } from "../utils/captureClock.js";
+import { validateVideoFile, checkAborted, loadVideoSource, seekVideo } from '../utils/videoInput.js';
 
 import { isOfflineRtmpose } from "../config/poseModel.js";
 
@@ -248,6 +251,9 @@ const pendingStartBody = ref(null);
 const poseReady = ref(false), paused = ref(false), activeMs = ref(0);
 const captureClock = createCaptureClock();
 let clockTimer = null;
+const videoProcessing = ref(false);
+let videoProcessAbort = null;
+function cancelVideoProcessing() { videoProcessAbort?.abort(); }
 const captureTime = computed(() => {
   const seconds = Math.floor(activeMs.value / 1000);
   return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
@@ -533,7 +539,7 @@ function onVideoEnded() {
   paintPoseOverlay();
 }
 
-async function prepareVideoSrc(src) {
+async function prepareVideoSrc(src, signal) {
   stopPosePlayback();
   const v = videoEl.value;
   if (!v) return;
@@ -544,25 +550,10 @@ async function prepareVideoSrc(src) {
   if (typeof src === "string" && src.startsWith("blob:")) {
     localObjectUrl = src;
   }
-  v.src = src;
-  await new Promise((resolve, reject) => {
-    const onMeta = () => {
-      v.removeEventListener("loadedmetadata", onMeta);
-      resolve();
-    };
-    v.addEventListener("loadedmetadata", onMeta);
-    v.onerror = () => reject(new Error("视频加载失败"));
-  });
-  v.currentTime = 0;
+  await loadVideoSource(v, src, { signal });
+  await seekVideo(v, 0, { signal });
+  checkAborted(signal);
   previewOn.value = true;
-  await new Promise((resolve) => {
-    const done = () => {
-      v.removeEventListener("seeked", done);
-      resolve();
-    };
-    v.addEventListener("seeked", done);
-    setTimeout(done, 300);
-  });
   paintPoseOverlay();
 }
 
@@ -815,6 +806,8 @@ async function onVideoPicked(ev) {
   ev.target.value = "";
 
   if (!file) return;
+  try { validateVideoFile(file); }
+  catch (error) { err.value = error.message; return; }
 
   demoPickId.value = "";
 
@@ -840,6 +833,10 @@ async function reprocessVideo() {
 
 
 async function runVideoProcess() {
+  const controller = new AbortController();
+  videoProcessAbort = controller;
+  videoProcessing.value = true;
+  const signal = controller.signal;
 
   err.value = "";
 
@@ -856,6 +853,7 @@ async function runVideoProcess() {
   previewOn.value = false;
 
   try {
+    validateVideoFile(videoFile.value);
 
     if (isOfflineRtmpose()) {
 
@@ -868,6 +866,7 @@ async function runVideoProcess() {
         file: pathRel ? null : videoFile.value,
 
         sampleHz: 6,
+        signal,
 
         exerciseId: exerciseId.value,
 
@@ -878,6 +877,7 @@ async function runVideoProcess() {
         },
 
       });
+      checkAborted(signal);
 
       serverPoseResult.value = result.serverResult;
 
@@ -898,12 +898,13 @@ async function runVideoProcess() {
       hint.value = `RTMPose 完成：${result.cocoFrames.length} 帧 COCO-17（约 ${result.durationSec.toFixed(1)}s），正在播放…`;
 
       if (demoRelPath.value) {
-        await prepareVideoSrc(`/api/demo-videos/file?rel=${encodeURIComponent(demoRelPath.value)}`);
+        await prepareVideoSrc(`/api/demo-videos/file?rel=${encodeURIComponent(demoRelPath.value)}`, signal);
       } else if (videoFile.value) {
         localObjectUrl = URL.createObjectURL(videoFile.value);
-        await prepareVideoSrc(localObjectUrl);
+        await prepareVideoSrc(localObjectUrl, signal);
       }
       await playWithPose();
+      checkAborted(signal);
       await persistDraft();
 
       return;
@@ -919,6 +920,7 @@ async function runVideoProcess() {
       file: videoFile.value,
 
       sampleHz: 6,
+      signal,
 
       onProgress: (p) => {
 
@@ -927,6 +929,7 @@ async function runVideoProcess() {
       },
 
     });
+    checkAborted(signal);
 
     mpFrames.value = result.mpFrames;
     overlayCocoFrames.value = result.mpFrames.map(mp33FrameToCoco17Keypoints);
@@ -947,11 +950,24 @@ async function runVideoProcess() {
 
     // processVideoFile 会清空 video.src，需重新挂上本地文件再播
     const blobUrl = URL.createObjectURL(videoFile.value);
-    await prepareVideoSrc(blobUrl);
+    await prepareVideoSrc(blobUrl, signal);
     await playWithPose();
+    checkAborted(signal);
     await persistDraft();
 
   } catch (e) {
+    if (signal.aborted || e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') {
+      mpFrames.value = []; serverPoseResult.value = null; overlayCocoFrames.value = [];
+      previewOn.value = false; hint.value = '已取消解析，可重新选择视频。';
+      stopPosePlayback();
+      if (videoEl.value) {
+        videoEl.value.pause();
+        videoEl.value.removeAttribute('src');
+        videoEl.value.load();
+      }
+      if (localObjectUrl) { URL.revokeObjectURL(localObjectUrl); localObjectUrl = null; }
+      return;
+    }
 
     const detail = e?.response?.data?.detail || e?.message || "视频解析失败";
     err.value =
@@ -960,6 +976,10 @@ async function runVideoProcess() {
         : detail;
 
   } finally {
+    if (videoProcessAbort === controller) {
+      videoProcessAbort = null;
+      videoProcessing.value = false;
+    }
 
     busy.value = false;
 
@@ -1276,6 +1296,7 @@ onBeforeRouteLeave(() => {
   }
 });
 onBeforeUnmount(() => {
+  cancelVideoProcessing();
   clearInterval(autosaveTimer);
   clearInterval(clockTimer);
   window.removeEventListener('beforeunload', beforeUnload);
