@@ -3,6 +3,9 @@ import vm from 'node:vm';
 import { createCaptureClock } from '../src/utils/captureClock.js';
 import { createStartRecovery } from '../src/utils/startRecovery.js';
 import { validateVideoFile, checkAborted } from '../src/utils/videoInput.js';
+import { createScreenAwake } from '../src/utils/screenAwake.js';
+import { cameraErrorMessage } from '../src/utils/cameraAccess.js';
+import { ref as vueRef, computed as vueComputed, watch as vueWatch } from 'vue';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -14,15 +17,19 @@ function page(put, post, get, cameraReady = () => true, processVideoFile, option
   let now = 1000;
   const entries = options.entries || new Map();
   const navigation = [];
+  const document = { hidden: false };
+  let cameraOptions;
   const context = vm.createContext({
-    ref: value => ({ value }), computed: fn => ({ get value() { return fn(); } }),
-    onMounted() {}, onBeforeUnmount() {}, onBeforeRouteLeave() {}, watch() {},
+    ref: options.reactive ? vueRef : value => ({ value }), computed: options.reactive ? vueComputed : fn => ({ get value() { return fn(); } }),
+    onMounted() {}, onBeforeUnmount() {}, onBeforeRouteLeave() {}, watch: options.reactive ? vueWatch : () => {},
     getUser: () => ({ id: 1 }), useRoute: () => ({ query: options.query || {} }), useRouter: () => ({ replace: async target => navigation.push(target), push: async target => navigation.push(target) }),
     api: { put, post, get }, createCaptureClock: () => createCaptureClock(() => now),
     crypto: { randomUUID: () => "test-request-1234567890" },
     localStorage: { setItem() {}, removeItem() {} },
     createStartRecovery, sessionStorage: { getItem: key => entries.get(key) || null, setItem: (key, value) => entries.set(key, value), removeItem: key => entries.delete(key) },
-    createPoseCamera: options => ({ start: async () => { options.onReady(cameraReady()); return true; }, stop() {} }), errorMessage: (e, fallback) => e.response?.data?.detail || fallback,
+    createPoseCamera: config => { cameraOptions = config; return { start: async () => { config.onReady(cameraReady()); return true; }, stop() {} }; }, errorMessage: (e, fallback) => e.response?.data?.detail || fallback,
+    cameraSupportError: () => '', cameraErrorMessage,
+    createScreenAwake: config => createScreenAwake({ ...config, navigator: options.navigator || {}, document }), document,
     isOfflineRtmpose: () => false, performance: { now: () => now },
     landmarksToMp33Frame: (landmarks, t_ms, frame_index) => ({ landmarks, t_ms, frame_index }),
     buildPoseSummary: ({ mpFrames }) => ({ source: 'camera', sequences: { mediapipe33: { frames: mpFrames } } }),
@@ -33,13 +40,66 @@ function page(put, post, get, cameraReady = () => true, processVideoFile, option
     start, pendingStartBody, camOn, poseReady, paused, pauseCapture, syncClock, activeMs, savedPayload, buildSubmission,
     loadRecommendedDemo, demoVideos, demoPickId, exerciseId, recommendedDemo, err, resumeCapture,
     runVideoProcess, cancelVideoProcessing, videoFile, videoProcessing, hint, mpFrames, previewOn,
-    initialize, initialized, startIntent, canStart, prescriptionId };`, context);
+    initialize, initialized, startIntent, canStart, prescriptionId, onVisibility, cameraStarting, awakeStatus };`, context);
   const c = context.check;
   c.session.value = { id: 1, draft_revision: 0 };
   c.busy.value = false; c.inputMode.value = 'camera';
   c.initialized.value = true;
-  return { c, entries, navigation, tick: delta => { now += delta; } };
+  return { c, entries, navigation, document, interrupted: () => cameraOptions.onInterrupted(), tick: delta => { now += delta; } };
 }
+
+test('real Vue capture state acquires a screen lock only during active capture and releases on pause/end', async () => {
+  const locks = [];
+  const p = page(async () => ({ data: { session: { draft_revision: 1 } } }), undefined, undefined, undefined, undefined,
+    { reactive: true, navigator: { wakeLock: { request: async () => {
+      const held = new EventTarget(); held.released = false;
+      held.release = async () => { held.released = true; held.dispatchEvent(new Event('release')); };
+      locks.push(held); return held;
+    } } } });
+  assert.equal(locks.length, 0);
+  await p.c.resumeCapture();
+  await Promise.resolve();
+  assert.equal(p.c.awakeStatus.value, 'active');
+  assert.equal(locks.length, 1);
+  p.c.pauseCapture();
+  assert.equal(locks[0].released, true);
+  assert.equal(p.c.awakeStatus.value, 'idle');
+  await p.c.persistDraft();
+  await p.c.resumeCapture();
+  await Promise.resolve();
+  assert.equal(locks.length, 2);
+  p.c.session.value = null;
+  assert.equal(locks[1].released, true);
+});
+
+test('camera interruption pauses collection, retains frames, and saves to the original session', async () => {
+  let sent, target;
+  const p = page(async (url, body) => { target = url; sent = body; return { data: { session: { draft_revision: 1 } } }; });
+  await p.c.resumeCapture();
+  p.tick(1500); p.c.captureFrame([{ x: 0.1 }]);
+  p.interrupted();
+  await p.c.persistDraft();
+  assert.equal(p.c.camOn.value, false);
+  assert.equal(p.c.paused.value, true);
+  assert.equal(p.c.cameraFrames.value.length, 1);
+  assert.equal(target, '/sessions/1/draft');
+  assert.equal(sent.pose_summary.capture_session.active_ms, 1500);
+  assert.match(p.c.hint.value, /中断.*继续训练/);
+  p.tick(5000); p.c.captureFrame([{ x: 0.2 }]);
+  assert.equal(p.c.cameraFrames.value.length, 1);
+});
+
+test('backgrounding closes camera preview before a session exists', async () => {
+  const p = page();
+  p.c.session.value = null;
+  await p.c.resumeCapture();
+  assert.equal(p.c.camOn.value, true);
+  p.document.hidden = true;
+  p.c.onVisibility();
+  assert.equal(p.c.camOn.value, false);
+  assert.equal(p.c.cameraStarting.value, false);
+  assert.match(p.c.hint.value, /已关闭/);
+});
 
 test('cancelling page video parsing releases busy state and allows a new attempt', async () => {
   let attempts = 0;

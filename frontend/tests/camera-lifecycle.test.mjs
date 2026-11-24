@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { cameraSupportError } from '../src/utils/cameraAccess.js';
 
 function deferred() {
   let resolve;
@@ -11,22 +12,28 @@ function deferred() {
 
 function camera({ permission, model = async () => null, play = async () => {}, stopOnFrame = false } = {}) {
   let stops = 0, scheduled = 0, frames = 0;
+  let interruptions = 0;
   const draws = [], hints = [];
-  const stream = { getTracks: () => [{ stop: () => { stops++; } }] };
+  const track = new EventTarget();
+  track.stop = () => { stops++; };
+  const stream = { getTracks: () => [track] };
   const video = { play, currentTime: 1 };
   const ctx = new Proxy({}, { get: () => () => {} });
   const context = vm.createContext({
     navigator: { mediaDevices: { getUserMedia: permission || (async () => stream) } },
+    cameraSupportError: () => cameraSupportError({ navigator: { mediaDevices: { getUserMedia() {} } } }),
     getPoseLandmarker: model, drawSkeleton: (...args) => draws.push(args),
     requestAnimationFrame: () => ++scheduled, cancelAnimationFrame() {},
     performance: { now: () => 1000 },
   });
   const source = readFileSync(new URL('../src/composables/usePoseCamera.js', import.meta.url), 'utf8')
-    .replace(/import[^;]+;/, '').replace('export function', 'function');
+    .replace(/import[^;]+;/g, '').replace('export function', 'function');
   vm.runInContext(source + '\nglobalThis.factory = createPoseCamera;', context);
   const ctl = context.factory({ video, canvas: { getContext: () => ctx },
+    onInterrupted: () => { interruptions++; },
     onHint: text => hints.push(text), onFrame: () => { frames++; if (stopOnFrame) ctl.stop(); } });
-  return { ctl, stream, video, draws, hints,
+  return { ctl, stream, track, video, draws, hints,
+    get interruptions() { return interruptions; },
     get stops() { return stops; }, get scheduled() { return scheduled; }, get frames() { return frames; } };
 }
 
@@ -39,6 +46,33 @@ test('leaving during permission request releases the eventual stream without sta
   assert.equal(await opening, false);
   assert.equal(c.stops, 1);
   assert.equal(c.video.srcObject, null);
+  assert.equal(c.scheduled, 0);
+});
+
+test('system camera interruption releases preview once and removes stale track listeners', async () => {
+  const c = camera();
+  await c.ctl.start();
+  c.track.dispatchEvent(new Event('ended'));
+  assert.equal(c.interruptions, 1);
+  assert.equal(c.stops, 1);
+  assert.equal(c.video.srcObject, null);
+  c.track.dispatchEvent(new Event('ended'));
+  assert.equal(c.interruptions, 1);
+  await c.ctl.start();
+  c.ctl.stop();
+  c.track.dispatchEvent(new Event('ended'));
+  assert.equal(c.interruptions, 1);
+});
+
+test('camera interruption during model loading cannot revive the old capture', async () => {
+  const loading = deferred(), reached = deferred();
+  const c = camera({ model: () => { reached.resolve(); return loading.promise; } });
+  const opening = c.ctl.start();
+  await reached.promise;
+  c.track.dispatchEvent(new Event('ended'));
+  loading.resolve({ detectForVideo: () => { throw new Error('must not run'); } });
+  assert.equal(await opening, false);
+  assert.equal(c.interruptions, 1);
   assert.equal(c.scheduled, 0);
 });
 

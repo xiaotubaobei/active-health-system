@@ -1,5 +1,6 @@
 /** Camera lifecycle owns its tracks, including permission/model requests still in flight. */
 import { getPoseLandmarker, drawSkeleton } from "./usePoseLandmarker";
+import { cameraSupportError } from '../utils/cameraAccess.js';
 
 function angle(a, b, c) {
   const ab = { x: a.x - b.x, y: a.y - b.y };
@@ -9,16 +10,16 @@ function angle(a, b, c) {
   return Math.round(Math.acos(Math.min(1, Math.max(-1, (ab.x * cb.x + ab.y * cb.y) / (n1 * n2)))) * 180 / Math.PI);
 }
 
-export function createPoseCamera({ video, canvas, onHint, onFrame, onReady }) {
+export function createPoseCamera({ video, canvas, onHint, onFrame, onReady, onInterrupted }) {
   let stream = null, raf = 0, generation = 0;
   let running = false, lastVideoTime = -1, landmarker = null;
+  let detachTracks = [];
 
   async function start() {
     stop();
     const attempt = generation;
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("此浏览器无法使用摄像头，请通过 HTTPS 打开并检查浏览器权限");
-    }
+    const supportError = cameraSupportError();
+    if (supportError) throw new Error(supportError);
     const acquired = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
       audio: false,
@@ -29,6 +30,20 @@ export function createPoseCamera({ video, canvas, onHint, onFrame, onReady }) {
     }
     stream = acquired;
     try {
+      const interrupted = () => {
+        if (attempt !== generation) return;
+        stop();
+        onInterrupted?.();
+      };
+      for (const track of acquired.getVideoTracks?.() || acquired.getTracks()) {
+        track.addEventListener?.('ended', interrupted);
+        detachTracks.push(() => track.removeEventListener?.('ended', interrupted));
+        if (track.readyState === 'ended') {
+          const error = new Error('Camera track ended');
+          error.name = 'NotReadableError';
+          throw error;
+        }
+      }
       video.src = "";
       video.srcObject = stream;
       await video.play();
@@ -93,6 +108,8 @@ export function createPoseCamera({ video, canvas, onHint, onFrame, onReady }) {
     generation += 1;
     running = false;
     cancelAnimationFrame(raf);
+    detachTracks.forEach(detach => detach());
+    detachTracks = [];
     stream?.getTracks().forEach(track => track.stop());
     stream = null;
     landmarker = null;

@@ -14,7 +14,8 @@
     <p v-if="planTarget" class="muted">训练计划 v{{ planTarget.version }} · {{ planTarget.exercise.name }} · 目标 {{ planTarget.exercise.sets }}组 × {{ planTarget.exercise.reps }}{{ planTarget.exercise.unit || '次' }}。这是计划目标，不代表已完成量。</p>
     <p v-if="planTarget && planTarget.status !== 'formal_prescription'" class="muted">此计划尚未人工审核通过。</p>
     <p v-if="session" class="muted">训练 #{{ session.id }} 已保存。刷新或离开后，可从训练历史继续。</p>
-    <p v-if="savedPayload" class="ok">训练输入已保存在服务端，可直接结束并生成报告。{{ inputMode === 'camera' ? '继续采集需重新打开摄像头。' : '刷新后不会恢复视频预览，已保存的姿态数据仍会用于报告。' }}</p>
+    <p v-if="savedPayload && (inputMode !== 'camera' || cameraFrames.length)" class="ok">训练输入已保存在服务端，可直接结束并生成报告。{{ inputMode === 'camera' ? '继续采集需重新打开摄像头。' : '刷新后不会恢复视频预览，已保存的姿态数据仍会用于报告。' }}</p>
+    <p v-else-if="savedPayload && inputMode === 'camera'" class="muted">这次训练还没有姿态数据。请点击“继续训练”，全身入画后采集；也可以取消本次训练。</p>
     <p v-if="busy && !session && !videoProcessing" role="status">正在准备，请稍候…</p>
     <div v-if="session" role="status">
       <p>{{ saving ? '正在保存…' : draftDirty ? '有数据尚未保存' : saveState || '训练已建立' }}<span v-if="lastSavedAt"> · 最近保存 {{ lastSavedAt }}</span></p>
@@ -105,15 +106,24 @@
 
     <div class="row" v-else>
 
-      <button v-if="!session" @click="startCam" :disabled="camOn || cameraStarting || busy">{{ cameraStarting ? '正在打开摄像头…' : '打开摄像头' }}</button>
+      <button v-if="!session" @click="startCam" :disabled="camOn || cameraStarting || busy || !!cameraSupportIssue">{{ cameraStarting ? '正在打开摄像头…' : '打开摄像头' }}</button>
 
       <button v-if="!session" class="secondary" @click="stopCam" :disabled="!camOn && !cameraStarting">关闭摄像头</button>
       <template v-if="session">
         <button v-if="camOn && !paused" class="secondary" @click="pauseCapture" :disabled="busy">暂停训练</button>
-        <button v-else @click="resumeCapture" :disabled="busy || cameraStarting || cameraFrames.length >= captureLimit">{{ cameraStarting ? '正在准备…' : '继续训练' }}</button>
+        <button v-else @click="resumeCapture" :disabled="busy || cameraStarting || cameraFrames.length >= captureLimit || !!cameraSupportIssue">{{ cameraStarting ? '正在准备…' : '继续训练' }}</button>
         <span role="status">{{ camOn && poseReady && !paused ? '正在采集' : '已暂停，点击继续训练' }} · 摄像头采集 {{ captureTime }}</span>
       </template>
 
+    </div>
+
+    <div v-if="inputMode === 'camera'">
+      <p v-if="cameraSupportIssue" class="err" role="alert">{{ cameraSupportIssue }}</p>
+      <p class="muted">先把手机固定稳，全身入画并留出活动空间。切到后台会暂停采集，回来后点击“继续训练”。</p>
+      <p v-if="session" role="status">
+        {{ screenAwakeMessage }}
+        <button v-if="awakeStatus === 'unavailable' && captureActive" class="secondary" @click="screenAwake.setActive(true)">重试保持亮屏</button>
+      </p>
     </div>
 
     <div class="row">
@@ -127,7 +137,7 @@
 
     <p v-if="hint" class="ok">{{ hint }}</p>
 
-    <p v-if="err" class="err">{{ err }}</p>
+    <p v-if="err" class="err" role="alert">{{ err }}</p>
 
     <div class="grid-2" style="margin-top:12px">
 
@@ -234,6 +244,8 @@ import { processVideoFile } from "../composables/usePoseVideoFile";
 import { processVideoServer } from "../composables/usePoseVideoServer";
 
 import { createCaptureClock } from "../utils/captureClock.js";
+import { cameraSupportError, cameraErrorMessage } from '../utils/cameraAccess.js';
+import { createScreenAwake } from '../utils/screenAwake.js';
 import { createStartRecovery } from '../utils/startRecovery.js';
 import { validateVideoFile, checkAborted, loadVideoSource, seekVideo } from '../utils/videoInput.js';
 
@@ -262,6 +274,16 @@ const startIntent = ref(null), initialized = ref(false);
 const startRecovery = createStartRecovery({ storage: sessionStorage, userId: user.id, api,
   randomKey: () => crypto.randomUUID() });
 const poseReady = ref(false), paused = ref(false), activeMs = ref(0);
+const cameraSupportIssue = computed(() => cameraSupportError());
+const awakeStatus = ref('idle');
+const screenAwake = createScreenAwake({ onChange: status => { awakeStatus.value = status; } });
+const captureActive = computed(() => !!session.value && inputMode.value === 'camera' && camOn.value && poseReady.value && !paused.value && !busy.value);
+const screenAwakeMessage = computed(() => {
+  if (!captureActive.value) return '采集暂停时不保持亮屏；继续训练后会重新尝试。';
+  if (awakeStatus.value === 'active') return '已开启训练期间保持亮屏，暂停或离开后自动释放。';
+  if (awakeStatus.value === 'requesting') return '正在尝试保持亮屏…';
+  return '当前未能自动保持亮屏，请将手机自动锁屏时间调长；锁屏或离开页面会暂停采集。';
+});
 const captureClock = createCaptureClock();
 let clockTimer = null;
 const videoProcessing = ref(false);
@@ -327,7 +349,11 @@ function beforeUnload(event) {
 function retrySave() { persistDraft().catch(() => {}); }
 function onVisibility() {
   if (!document.hidden) return;
-  if (session.value && inputMode.value === 'camera' && (camOn.value || cameraStarting.value)) pauseCapture();
+  if (inputMode.value === 'camera' && (camOn.value || cameraStarting.value)) {
+    if (session.value) pauseCapture();
+    else stopCam();
+    hint.value = session.value ? '已切到后台，训练采集已暂停并尝试保存。回来后点击继续训练。' : '已切到后台，摄像头已关闭。回来后请重新打开。';
+  }
   else if (draftDirty.value && !busy.value) retrySave();
 }
 
@@ -456,6 +482,7 @@ const err = ref("");
 const poseHint = ref("");
 
 const busy = ref(true);
+watch(captureActive, active => { screenAwake.setActive(active); }, { flush: 'sync' });
 
 const demoVideos = ref([]);
 
@@ -1050,6 +1077,7 @@ async function runVideoProcess() {
 
 async function startCam() {
   if (cameraStarting.value || camOn.value) return;
+  if (cameraSupportIssue.value) { err.value = cameraSupportIssue.value; return; }
   cameraStarting.value = true;
   let controller;
 
@@ -1067,6 +1095,11 @@ async function startCam() {
 
       onFrame: captureFrame,
       onReady: ready => { poseReady.value = ready; syncClock(); },
+      onInterrupted: () => {
+        if (session.value) pauseCapture();
+        else stopCam();
+        hint.value = session.value ? '摄像头连接已中断，训练已暂停并尝试保存。检查权限或设备连接后点击继续训练。' : '摄像头连接已中断，请检查权限或设备连接后重新打开。';
+      },
       onHint: (t) => {
 
         poseHint.value = t;
@@ -1091,7 +1124,7 @@ async function startCam() {
 
     if (controller && cameraCtl !== controller) return;
     stopCam();
-    err.value = "无法打开摄像头：" + (e?.message || "请检查权限");
+    err.value = cameraSupportIssue.value || cameraErrorMessage(e);
   } finally {
     if (cameraCtl === controller) cameraStarting.value = false;
 
@@ -1345,6 +1378,7 @@ onBeforeRouteLeave(() => {
   }
 });
 onBeforeUnmount(() => {
+  screenAwake.dispose();
   cancelVideoProcessing();
   clearInterval(autosaveTimer);
   clearInterval(clockTimer);
