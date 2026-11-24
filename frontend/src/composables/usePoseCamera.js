@@ -9,7 +9,7 @@ function angle(a, b, c) {
   return Math.round(Math.acos(Math.min(1, Math.max(-1, (ab.x * cb.x + ab.y * cb.y) / (n1 * n2)))) * 180 / Math.PI);
 }
 
-export function createPoseCamera({ video, canvas, onHint, onFrame }) {
+export function createPoseCamera({ video, canvas, onHint, onFrame, onReady }) {
   let stream = null, raf = 0, generation = 0;
   let running = false, lastVideoTime = -1, landmarker = null;
 
@@ -38,6 +38,7 @@ export function createPoseCamera({ video, canvas, onHint, onFrame }) {
         const model = await getPoseLandmarker();
         if (attempt !== generation) return false;
         landmarker = model;
+        onReady?.(true);
         onHint?.("姿态模型就绪：请站入画面（镜像预览）");
       } catch (error) {
         if (attempt !== generation) return false;
@@ -70,6 +71,7 @@ export function createPoseCamera({ video, canvas, onHint, onFrame }) {
         const lm = landmarker.detectForVideo(video, performance.now())?.landmarks?.[0];
         if (lm) {
           onFrame?.(lm);
+          if (!running) return;
           // The entire canvas is already mirrored, including the video.
           drawSkeleton(ctx, lm, w, h);
           const knee = angle(lm[23], lm[25], lm[27]) || angle(lm[24], lm[26], lm[28]);
@@ -83,10 +85,11 @@ export function createPoseCamera({ video, canvas, onHint, onFrame }) {
     } finally {
       ctx.restore();
     }
-    raf = requestAnimationFrame(loop);
+    if (running) raf = requestAnimationFrame(loop);
   }
 
   function stop() {
+    onReady?.(false);
     generation += 1;
     running = false;
     cancelAnimationFrame(raf);

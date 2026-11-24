@@ -9,7 +9,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-function camera({ permission, model = async () => null, play = async () => {} } = {}) {
+function camera({ permission, model = async () => null, play = async () => {}, stopOnFrame = false } = {}) {
   let stops = 0, scheduled = 0, frames = 0;
   const draws = [], hints = [];
   const stream = { getTracks: () => [{ stop: () => { stops++; } }] };
@@ -25,7 +25,7 @@ function camera({ permission, model = async () => null, play = async () => {} } 
     .replace(/import[^;]+;/, '').replace('export function', 'function');
   vm.runInContext(source + '\nglobalThis.factory = createPoseCamera;', context);
   const ctl = context.factory({ video, canvas: { getContext: () => ctx },
-    onHint: text => hints.push(text), onFrame: () => frames++ });
+    onHint: text => hints.push(text), onFrame: () => { frames++; if (stopOnFrame) ctl.stop(); } });
   return { ctl, stream, video, draws, hints,
     get stops() { return stops; }, get scheduled() { return scheduled; }, get frames() { return frames; } };
 }
@@ -97,4 +97,15 @@ test('failed shared model download can be retried after network recovery', async
   assert.equal(await context.load(), model);
   assert.equal(await context.load(), model);
   assert.equal(attempts, 3);
+});
+
+test('reaching the capture bound inside a frame callback stops drawing and scheduling', async () => {
+  const landmarks = Array.from({ length: 33 }, () => ({ x: 0.1, y: 0.2 }));
+  const c = camera({ stopOnFrame: true,
+    model: async () => ({ detectForVideo: () => ({ landmarks: [landmarks] }) }) });
+  await c.ctl.start();
+  assert.equal(c.frames, 1);
+  assert.equal(c.stops, 1);
+  assert.equal(c.draws.length, 0);
+  assert.equal(c.scheduled, 0);
 });

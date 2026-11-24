@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from .config import DATABASE_URL
 from .database import Base, engine
-from .models.entities import User
+from .models.entities import User, ExerciseSession
 from .passwords import PREFIX, hash_password
 
 
@@ -39,6 +39,11 @@ def _migrate_sqlite_columns() -> None:
     if "exercise_sessions" in insp.get_table_names():
         _add_col("exercise_sessions", "plan_snapshot", "plan_snapshot JSON DEFAULT '{}'")
         _add_col("exercise_sessions", "draft_revision", "draft_revision INTEGER DEFAULT 0")
+        _add_col("exercise_sessions", "start_key", "start_key VARCHAR(64)")
+        if "user_id" in _sqlite_columns("exercise_sessions"):
+            for index in ExerciseSession.__table__.indexes:
+                if index.name == "uq_session_start_key":
+                    index.create(bind=engine, checkfirst=True)
     if "users" in insp.get_table_names():
         _add_col("users", "privacy_consent", "privacy_consent BOOLEAN DEFAULT 0")
         _add_col("users", "onboarding_done", "onboarding_done BOOLEAN DEFAULT 0")

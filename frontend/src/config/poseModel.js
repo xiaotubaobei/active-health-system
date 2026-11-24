@@ -6,16 +6,12 @@
  */
 const VARIANT = (import.meta.env.VITE_POSE_LANDMARKER || "full").toLowerCase();
 
-const MODEL_BASE =
-  "https://storage.googleapis.com/mediapipe-models/pose_landmarker";
-
 export const POSE_LANDMARKER_VARIANT = ["lite", "full", "heavy"].includes(VARIANT)
   ? VARIANT
   : "full";
 
 export const POSE_MODEL_URL =
-  `${MODEL_BASE}/pose_landmarker_${POSE_LANDMARKER_VARIANT}/float16/1/` +
-  `pose_landmarker_${POSE_LANDMARKER_VARIANT}.task`;
+  `/models/pose_landmarker_${POSE_LANDMARKER_VARIANT}.task`;
 
 export function poseEstimatorMeta() {
   return {

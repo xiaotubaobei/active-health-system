@@ -17,6 +17,8 @@ backend/**/__pycache__/
 backend/.venv/
 frontend/node_modules/
 frontend/dist/
+frontend/public/wasm/
+# A downloaded and verified model may be supplied for builds without Google access.
 **/.env
 **/.env.*
 **/*.db

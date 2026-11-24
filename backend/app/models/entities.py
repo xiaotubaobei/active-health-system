@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Integer, Float, Text, DateTime, ForeignKey, JSON, Boolean
+from sqlalchemy import String, Integer, Float, Text, DateTime, ForeignKey, JSON, Boolean, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from ..database import Base
 
@@ -108,11 +108,13 @@ class PrescriptionReview(Base):
 
 class ExerciseSession(Base):
     __tablename__ = "exercise_sessions"
+    __table_args__ = (Index("uq_session_start_key", "user_id", "start_key", unique=True),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     prescription_id: Mapped[int] = mapped_column(Integer, default=0)
     plan_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
     draft_revision: Mapped[int] = mapped_column(Integer, default=0)
+    start_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     exercise_id: Mapped[str] = mapped_column(String(64))
     exercise_name: Mapped[str] = mapped_column(String(128), default="")
     status: Mapped[str] = mapped_column(String(32), default="running")

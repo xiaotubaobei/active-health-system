@@ -1,6 +1,7 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..security import get_current_user, owned_user, require_owner
@@ -18,6 +19,18 @@ async def start(body: SessionStartIn, actor: User = Depends(get_current_user), d
     user = require_owner(body.user_id, actor)
     if not user.onboarding_done:
         raise HTTPException(409, "请先完成首次测评")
+    # A retry returns the original input and status, never updates or recreates it.
+    def previous_start():
+        if not body.start_key:
+            return None
+        previous = db.query(ExerciseSession).filter_by(user_id=user.id, start_key=body.start_key).first()
+        if previous and (previous.exercise_id != body.exercise_id or previous.prescription_id != body.prescription_id):
+            raise HTTPException(409, "开始请求已用于另一项训练，请先找回原记录")
+        return previous
+
+    previous = previous_start()
+    if previous:
+        return {"session": previous, "pose_live": previous.pose_summary}
     media_path(body.video_path, actor.id)
     plan_snapshot = {}
     exercise_name = body.exercise_name or body.exercise_id
@@ -34,6 +47,7 @@ async def start(body: SessionStartIn, actor: User = Depends(get_current_user), d
     pose = body.pose_summary or await ai_client.pose_infer({"exercise_id": body.exercise_id})
     row = ExerciseSession(
         user_id=user.id,
+        start_key=body.start_key,
         prescription_id=body.prescription_id,
         exercise_id=body.exercise_id,
         exercise_name=exercise_name,
@@ -43,7 +57,14 @@ async def start(body: SessionStartIn, actor: User = Depends(get_current_user), d
         video_path=body.video_path,
     )
     db.add(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        previous = previous_start()
+        if previous:
+            return {"session": previous, "pose_live": previous.pose_summary}
+        raise
     db.refresh(row)
     return {"session": row, "pose_live": pose}
 

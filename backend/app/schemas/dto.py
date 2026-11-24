@@ -68,6 +68,7 @@ class PrescriptionDecisionIn(BaseModel):
 
 
 class SessionStartIn(BaseModel):
+    start_key: str | None = Field(default=None, min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     user_id: int
     exercise_id: str
     exercise_name: str = ""

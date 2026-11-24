@@ -19,7 +19,7 @@
 
     <p class="muted">
 
-      支持<strong>离线视频</strong>（默认服务端 <strong>RTMPose</strong> COCO-17）或实时摄像头（MediaPipe）；结束后上传姿态序列。
+      选择视频或打开摄像头，准备好后点击“开始训练”。结束时生成报告；摄像头只保存姿态数据，不保存原视频。
 
     </p>
 
@@ -27,7 +27,7 @@
 
       <label class="tag gray">输入</label>
 
-      <select v-model="inputMode" :disabled="!!session || busy">
+      <select v-model="inputMode" :disabled="!!session || busy || !!pendingStartBody">
 
         <option value="video">离线视频（推荐验证）</option>
 
@@ -35,7 +35,7 @@
 
       </select>
 
-      <select v-model="exerciseId" :disabled="!!session || busy">
+      <select v-model="exerciseId" :disabled="!!session || busy || !!pendingStartBody">
 
         <option v-for="e in exercises" :key="e.id" :value="e.id">{{ e.name }}</option>
 
@@ -47,7 +47,7 @@
 
       <label class="tag gray">演示样本</label>
 
-      <select v-model="demoPickId" :disabled="busy || !!session" @change="onDemoPicked">
+      <select v-model="demoPickId" :disabled="busy || !!session || !!pendingStartBody" @change="onDemoPicked">
 
         <option value="">（选手动选文件或下方样本）</option>
 
@@ -57,9 +57,9 @@
 
       <button
         @click="loadRecommendedDemo"
-        :disabled="busy || !!session || !recommendedDemo"
+        :disabled="busy || !!session || !!pendingStartBody || !recommendedDemo"
       >
-        一键推荐深蹲
+        加载推荐样本
       </button>
 
     </div>
@@ -72,7 +72,7 @@
 
         accept="video/*"
 
-        :disabled="busy"
+        :disabled="busy || !!session || !!pendingStartBody"
 
         @change="onVideoPicked"
 
@@ -83,7 +83,7 @@
       <button
         class="secondary"
         @click="reprocessVideo"
-        :disabled="(!videoFile && !demoRelPath) || busy || !!session"
+        :disabled="(!videoFile && !demoRelPath) || busy || !!session || !!pendingStartBody"
       >
 
         重新解析视频
@@ -94,15 +94,20 @@
 
     <div class="row" v-else>
 
-      <button @click="startCam" :disabled="camOn || cameraStarting || busy">{{ cameraStarting ? '正在打开摄像头…' : '打开摄像头' }}</button>
+      <button v-if="!session" @click="startCam" :disabled="camOn || cameraStarting || busy">{{ cameraStarting ? '正在打开摄像头…' : '打开摄像头' }}</button>
 
-      <button class="secondary" @click="stopCam" :disabled="!camOn && !cameraStarting">关闭摄像头</button>
+      <button v-if="!session" class="secondary" @click="stopCam" :disabled="!camOn && !cameraStarting">关闭摄像头</button>
+      <template v-if="session">
+        <button v-if="camOn && !paused" class="secondary" @click="pauseCapture" :disabled="busy">暂停训练</button>
+        <button v-else @click="resumeCapture" :disabled="busy || cameraStarting || cameraFrames.length >= captureLimit">{{ cameraStarting ? '正在准备…' : '继续训练' }}</button>
+        <span role="status">{{ camOn && poseReady && !paused ? '正在采集' : '已暂停，点击继续训练' }} · 摄像头采集 {{ captureTime }}</span>
+      </template>
 
     </div>
 
     <div class="row">
 
-      <button @click="start" :disabled="!!session || busy || !canStart">开始会话</button>
+      <button @click="start" :disabled="!!session || busy || (!pendingStartBody && !canStart)">{{ pendingStartBody ? "重试开始" : "开始训练" }}</button>
 
       <button class="secondary" @click="finish" :disabled="!session || busy">结束并生成报告</button>
       <button class="secondary" v-if="session" @click="cancelSession" :disabled="busy">取消本次训练</button>
@@ -178,7 +183,7 @@
 
         <p class="muted" v-if="inputMode === 'video'">
 
-          离线 {{ offlinePoseLabel }}，约 6Hz 抽帧；finish 提交 COCO-17 pose_summary。
+          视频已解析为姿态数据，结束训练后用于生成报告。
 
         </p>
 
@@ -188,7 +193,7 @@
 
           <li v-else>打开摄像头，全身入画</li>
 
-          <li>开始会话 → 结束 → 查看 CoT 报告</li>
+          <li>开始训练 → 结束并生成报告 → 查看本次记录</li>
 
         </ol>
 
@@ -217,6 +222,8 @@ import { processVideoFile } from "../composables/usePoseVideoFile";
 
 import { processVideoServer } from "../composables/usePoseVideoServer";
 
+import { createCaptureClock } from "../utils/captureClock.js";
+
 import { isOfflineRtmpose } from "../config/poseModel.js";
 
 import {
@@ -237,17 +244,52 @@ const router = useRouter();
 const route = useRoute();
 const savedPayload = ref(null);
 const cameraFrames = ref([]);
+const pendingStartBody = ref(null);
+const poseReady = ref(false), paused = ref(false), activeMs = ref(0);
+const captureClock = createCaptureClock();
+let clockTimer = null;
+const captureTime = computed(() => {
+  const seconds = Math.floor(activeMs.value / 1000);
+  return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
+});
+function syncClock() {
+  if (session.value && inputMode.value === 'camera' && camOn.value && poseReady.value && !paused.value && !busy.value) captureClock.start();
+  else captureClock.pause();
+  activeMs.value = captureClock.elapsed();
+}
+function cameraPayload(payload) {
+  syncClock();
+  return { ...payload, pose_summary: { ...payload.pose_summary, capture_session: { active_ms: activeMs.value } } };
+}
+function pauseCapture() {
+  if (!session.value || inputMode.value !== 'camera') return;
+  paused.value = true;
+  stopCam();
+  changeVersion++; draftDirty.value = true;
+  retrySave();
+}
+async function resumeCapture() {
+  if (cameraFrames.value.length >= captureLimit) return;
+  if (camOn.value && !poseReady.value) stopCam();
+  await startCam();
+  if (camOn.value && poseReady.value) { paused.value = false; syncClock(); }
+  else if (camOn.value) {
+    stopCam();
+    err.value = '姿态模型未能加载，请检查网络后点击继续训练重试。';
+  }
+}
 const captureLimit = 1200;
 const saveState = ref(''), saveError = ref(''), lastSavedAt = ref('');
 const draftDirty = ref(false), draftConflict = ref(false), saving = ref(false);
 let changeVersion = 0, savePromise = null, autosaveTimer = null, lastCapture = 0;
 let cameraOffset = 0, cameraBase = 0;
 function captureFrame(landmarks) {
-  if (!session.value || busy.value || inputMode.value !== 'camera') return;
+  if (!session.value || busy.value || paused.value || inputMode.value !== 'camera') return;
   const now = performance.now();
   if (now - lastCapture < 500) return;
   lastCapture = now;
   if (cameraFrames.value.length >= captureLimit) {
+    pauseCapture();
     poseHint.value = '已达到1200帧采集上限，请结束并保存，再开始新的训练。';
     return;
   }
@@ -255,12 +297,20 @@ function captureFrame(landmarks) {
   cameraFrames.value.push(landmarksToMp33Frame(landmarks, cameraOffset, cameraFrames.value.length));
   changeVersion++;
   draftDirty.value = true;
+  if (cameraFrames.value.length >= captureLimit) {
+    pauseCapture();
+    poseHint.value = '已达到1200帧采集上限，已暂停，请结束并保存本次训练。';
+  }
 }
 function beforeUnload(event) {
   if (session.value && (draftDirty.value || saving.value)) { event.preventDefault(); event.returnValue = ''; }
 }
 function retrySave() { persistDraft().catch(() => {}); }
-function onVisibility() { if (document.hidden && draftDirty.value && !busy.value) retrySave(); }
+function onVisibility() {
+  if (!document.hidden) return;
+  if (session.value && inputMode.value === 'camera' && (camOn.value || cameraStarting.value)) pauseCapture();
+  else if (draftDirty.value && !busy.value) retrySave();
+}
 
 
 const exercises = ref([]);
@@ -311,8 +361,7 @@ const videoLabel = computed(
 );
 
 const recommendedDemo = computed(() => {
-  const pin = DEMO_PIN[0];
-  return demoVideos.value.find((d) => d.rel_path === pin) || demoVideosFiltered.value[0] || null;
+  return demoVideosFiltered.value[0] || null;
 });
 
 const kneeSeries = computed(() => {
@@ -356,7 +405,7 @@ const demoVideosFiltered = computed(() => {
   const all = demoVideos.value;
   if (!all.length) return [];
   const matched = all.filter((d) => d.exercise_id === exerciseId.value);
-  const list = matched.length ? [...matched] : [...all];
+  const list = [...matched];
   list.sort((a, b) => demoRank(a) - demoRank(b) || String(a.label).localeCompare(String(b.label)));
   return list.map((d) => {
     const rel = d.rel_path || "";
@@ -365,6 +414,15 @@ const demoVideosFiltered = computed(() => {
     }
     return d;
   });
+});
+
+watch(inputMode, () => {
+  if (session.value) return;
+  stopCam(); stopPosePlayback();
+  mpFrames.value = []; serverPoseResult.value = null; overlayCocoFrames.value = [];
+  savedPayload.value = null; videoFile.value = null; demoRelPath.value = ''; demoPickId.value = '';
+  videoMeta.value = { width: 0, height: 0, fileName: '' };
+  if (localObjectUrl) { URL.revokeObjectURL(localObjectUrl); localObjectUrl = null; }
 });
 
 const camOn = ref(false);
@@ -542,7 +600,7 @@ const canStart = computed(() => {
     );
   }
 
-  return camOn.value;
+  return camOn.value && poseReady.value;
 
 });
 
@@ -664,6 +722,8 @@ async function restoreSession() {
     if (inputMode.value === 'camera') {
       cameraFrames.value = row.pose_summary?.sequences?.mediapipe33?.frames || [];
       cameraOffset = cameraFrames.value.at(-1)?.t_ms || 0;
+      captureClock.reset(row.pose_summary?.capture_session?.active_ms);
+      activeMs.value = captureClock.elapsed(); paused.value = true;
     }
     lastSavedAt.value = '';
     draftDirty.value = false;
@@ -690,7 +750,14 @@ async function cancelSession() {
   finally { busy.value = false; }
 }
 
+async function loadRecommendedDemo() {
+  if (busy.value || session.value || pendingStartBody.value || !recommendedDemo.value) return;
+  demoPickId.value = recommendedDemo.value.id;
+  await onDemoPicked();
+}
+
 async function onDemoPicked() {
+  if (session.value || pendingStartBody.value || busy.value) return;
 
   if (!demoPickId.value) return;
 
@@ -741,6 +808,7 @@ async function onDemoPicked() {
 
 
 async function onVideoPicked(ev) {
+  if (session.value || pendingStartBody.value || busy.value) return;
 
   const file = ev.target.files?.[0];
 
@@ -761,6 +829,7 @@ async function onVideoPicked(ev) {
 
 
 async function reprocessVideo() {
+  if (session.value || pendingStartBody.value || busy.value) return;
 
   if (!videoFile.value && !demoRelPath.value) return;
 
@@ -918,6 +987,7 @@ async function startCam() {
       canvas: canvasEl.value,
 
       onFrame: captureFrame,
+      onReady: ready => { poseReady.value = ready; syncClock(); },
       onHint: (t) => {
 
         poseHint.value = t;
@@ -930,7 +1000,9 @@ async function startCam() {
     const opened = await controller.start();
     if (!opened || cameraCtl !== controller) return;
 
+    cameraBase = performance.now() - cameraOffset;
     camOn.value = true;
+    syncClock();
 
     previewOn.value = true;
 
@@ -951,6 +1023,8 @@ async function startCam() {
 
 
 function stopCam() {
+  camOn.value = false; poseReady.value = false;
+  syncClock();
   cameraStarting.value = false;
 
   cameraCtl?.stop();
@@ -968,71 +1042,54 @@ function stopCam() {
 
 
 async function start() {
-  if (planLinkError.value) return;
-
-  err.value = "";
-
-  busy.value = true;
-
+  if (planLinkError.value || busy.value || session.value || (!pendingStartBody.value && !canStart.value)) return;
+  err.value = ''; busy.value = true;
   try {
-
-    const name = exercises.value.find((e) => e.id === exerciseId.value)?.name || exerciseId.value;
-
-    const { data } = await api.post("/sessions/start", {
-
-      user_id: user.id,
-
-      exercise_id: exerciseId.value,
-
-      exercise_name: name,
-
-      prescription_id: prescriptionId.value,
-      ...buildSubmission(),
-
-    });
-
-    session.value = data.session;
-    cameraFrames.value = []; cameraOffset = 0;
-    savedPayload.value = buildSubmission();
+    if (!pendingStartBody.value) {
+      const name = exercises.value.find(e => e.id === exerciseId.value)?.name || exerciseId.value;
+      pendingStartBody.value = JSON.parse(JSON.stringify({
+        user_id: user.id, exercise_id: exerciseId.value, exercise_name: name,
+        prescription_id: prescriptionId.value, start_key: crypto.randomUUID(), ...buildSubmission(),
+      }));
+    }
+    // Keep the exact request after a lost response; the server returns the original record.
+    const { data } = await api.post('/sessions/start', pendingStartBody.value);
+    pendingStartBody.value = null;
+    const row = data.session;
+    if (row.status !== 'running') {
+      stopCam();
+      await router.replace(row.status === 'finished'
+        ? { path: '/report', query: { session_id: row.id } } : { path: '/history' });
+      return;
+    }
+    session.value = row;
+    savedPayload.value = { video_path: row.video_path || '', pose_summary: row.pose_summary || {} };
+    cameraFrames.value = row.pose_summary?.sequences?.mediapipe33?.frames || [];
+    cameraOffset = cameraFrames.value.at(-1)?.t_ms || 0;
+    cameraBase = performance.now() - cameraOffset;
+    captureClock.reset(row.pose_summary?.capture_session?.active_ms);
+    paused.value = !camOn.value;
     draftDirty.value = false;
-    await router.replace({ path: "/exercise", query: { session_id: data.session.id } });
-
-    hint.value =
-
-      inputMode.value === "video"
-
-        ? "会话已开始（离线序列已就绪），可直接结束生成报告"
-
-        : "会话已开始，请完成若干次动作后结束会话";
-
-    localStorage.setItem("ah_last_session", String(data.session.id));
-
-    if (inputMode.value === "camera" && !camOn.value) await startCam();
-
+    localStorage.setItem('ah_last_session', String(row.id));
+    await router.replace({ path: '/exercise', query: { session_id: row.id } });
+    hint.value = inputMode.value === 'video' ? '训练已建立，可回看视频后生成报告。' : '训练已开始，请全身入画。中途可暂停。';
   } catch (e) {
-
-    err.value = e?.response?.data?.detail || "开始会话失败";
-
-  } finally {
-
-    busy.value = false;
-
-  }
-
+    // A definite client error did not create a record. Network/server errors remain retryable.
+    if (e?.response?.status >= 400 && e.response.status < 500) pendingStartBody.value = null;
+    err.value = errorMessage(e, '开始请求未确认，请点击“重试开始”。重试会找回同一条记录。');
+  } finally { busy.value = false; syncClock(); }
 }
-
-
 
 function buildSubmission() {
   if (inputMode.value === 'camera' && cameraFrames.value.length) {
-    return { video_path: '', pose_summary: buildPoseSummary({
+    return cameraPayload({ video_path: '', pose_summary: buildPoseSummary({
       sessionId: session.value?.id, exerciseId: exerciseId.value,
       exerciseName: session.value?.exercise_name || exerciseId.value,
       mpFrames: cameraFrames.value, source: 'camera',
       width: videoEl.value?.videoWidth || 640, height: videoEl.value?.videoHeight || 480,
-    }) };
+    }) });
   }
-  if (savedPayload.value && !serverPoseResult.value?.coco17_frames?.length && !mpFrames.value.length && !camOn.value) return savedPayload.value;
+  if (savedPayload.value && !serverPoseResult.value?.coco17_frames?.length && !mpFrames.value.length && !camOn.value) return inputMode.value === 'camera' ? cameraPayload(savedPayload.value) : savedPayload.value;
     const name = exercises.value.find((e) => e.id === exerciseId.value)?.name || exerciseId.value;
 
     let poseSummary;
@@ -1111,7 +1168,8 @@ function buildSubmission() {
 
 
 
-  return { video_path: videoPath, pose_summary: poseSummary };
+  const payload = { video_path: videoPath, pose_summary: poseSummary };
+  return inputMode.value === 'camera' ? cameraPayload(payload) : payload;
 }
 
 async function persistDraft() {
@@ -1146,6 +1204,11 @@ async function persistDraft() {
 
 
 async function finish() {
+  if (inputMode.value === 'camera' && !cameraFrames.value.length) {
+    err.value = '还没有采集到姿态，请全身入画并继续训练；也可以取消本次训练。';
+    return;
+  }
+  if (inputMode.value === 'camera') { paused.value = true; stopCam(); }
 
   err.value = "";
 
@@ -1199,6 +1262,7 @@ async function finish() {
 
 
 onMounted(() => {
+  clockTimer = setInterval(syncClock, 250);
   window.addEventListener('beforeunload', beforeUnload);
   window.addEventListener('online', retrySave);
   document.addEventListener('visibilitychange', onVisibility);
@@ -1213,6 +1277,7 @@ onBeforeRouteLeave(() => {
 });
 onBeforeUnmount(() => {
   clearInterval(autosaveTimer);
+  clearInterval(clockTimer);
   window.removeEventListener('beforeunload', beforeUnload);
   window.removeEventListener('online', retrySave);
   document.removeEventListener('visibilitychange', onVisibility);

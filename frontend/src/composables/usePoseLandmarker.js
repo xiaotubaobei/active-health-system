@@ -1,7 +1,7 @@
 /** 共享 MediaPipe PoseLandmarker（摄像头 / 离线视频） */
 import { POSE_LANDMARKER_VARIANT, POSE_MODEL_URL } from "../config/poseModel.js";
 
-const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const WASM = "/wasm";
 
 let landmarkerPromise = null;
 
