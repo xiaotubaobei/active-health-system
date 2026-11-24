@@ -3,6 +3,14 @@
   <div class="card">
 
     <h2>运动中监测</h2>
+    <div v-if="startIntent && !session" role="status">
+      <p>上一次开始请求尚未确认。先检查是否已建立训练；尚未查到时，请重新准备原动作的视频或摄像头，再点击开始。系统会沿用原请求，避免重复记录。</p>
+      <button class="secondary" :disabled="busy" @click="initialize">检查上次开始结果</button>
+    </div>
+    <div v-if="!initialized && !busy">
+      <p role="alert">训练页面未准备完成，请重新加载后再开始。</p>
+      <button :disabled="busy" @click="initialize">重新加载</button>
+    </div>
     <p v-if="planTarget" class="muted">训练计划 v{{ planTarget.version }} · {{ planTarget.exercise.name }} · 目标 {{ planTarget.exercise.sets }}组 × {{ planTarget.exercise.reps }}{{ planTarget.exercise.unit || '次' }}。这是计划目标，不代表已完成量。</p>
     <p v-if="planTarget && planTarget.status !== 'formal_prescription'" class="muted">此计划尚未人工审核通过。</p>
     <p v-if="session" class="muted">训练 #{{ session.id }} 已保存。刷新或离开后，可从训练历史继续。</p>
@@ -28,7 +36,7 @@
 
       <label class="tag gray">输入</label>
 
-      <select v-model="inputMode" :disabled="!!session || busy || !!pendingStartBody">
+      <select v-model="inputMode" :disabled="!!session || busy || !!pendingStartBody || !!startIntent">
 
         <option value="video">离线视频（推荐验证）</option>
 
@@ -36,7 +44,7 @@
 
       </select>
 
-      <select v-model="exerciseId" :disabled="!!session || busy || !!pendingStartBody">
+      <select v-model="exerciseId" :disabled="!!session || busy || !!pendingStartBody || !!startIntent">
 
         <option v-for="e in exercises" :key="e.id" :value="e.id">{{ e.name }}</option>
 
@@ -110,7 +118,7 @@
 
     <div class="row">
 
-      <button @click="start" :disabled="!!session || busy || (!pendingStartBody && !canStart)">{{ pendingStartBody ? "重试开始" : "开始训练" }}</button>
+      <button @click="start" :disabled="!initialized || !!session || busy || (!pendingStartBody && !canStart)">{{ pendingStartBody ? "重试开始" : "开始训练" }}</button>
 
       <button class="secondary" @click="finish" :disabled="!session || busy">结束并生成报告</button>
       <button class="secondary" v-if="session" @click="cancelSession" :disabled="busy">取消本次训练</button>
@@ -226,6 +234,7 @@ import { processVideoFile } from "../composables/usePoseVideoFile";
 import { processVideoServer } from "../composables/usePoseVideoServer";
 
 import { createCaptureClock } from "../utils/captureClock.js";
+import { createStartRecovery } from '../utils/startRecovery.js';
 import { validateVideoFile, checkAborted, loadVideoSource, seekVideo } from '../utils/videoInput.js';
 
 import { isOfflineRtmpose } from "../config/poseModel.js";
@@ -249,6 +258,9 @@ const route = useRoute();
 const savedPayload = ref(null);
 const cameraFrames = ref([]);
 const pendingStartBody = ref(null);
+const startIntent = ref(null), initialized = ref(false);
+const startRecovery = createStartRecovery({ storage: sessionStorage, userId: user.id, api,
+  randomKey: () => crypto.randomUUID() });
 const poseReady = ref(false), paused = ref(false), activeMs = ref(0);
 const captureClock = createCaptureClock();
 let clockTimer = null;
@@ -583,7 +595,7 @@ async function replayWithPose() {
 }
 
 const canStart = computed(() => {
-  if (planLinkError.value) return false;
+  if (!initialized.value || planLinkError.value) return false;
 
   if (inputMode.value === "video") {
     return (
@@ -598,8 +610,26 @@ const canStart = computed(() => {
 
 
 
-onMounted(async () => {
+async function initialize() {
+  if (session.value) return;
+  busy.value = true; initialized.value = false; err.value = ''; planLinkError.value = false;
   try {
+
+  startIntent.value = startRecovery.read();
+  if (startIntent.value) {
+    const row = await startRecovery.lookup(startIntent.value);
+    if (row) {
+      await adoptSession(row, true);
+      initialized.value = true;
+      return;
+    }
+  }
+
+  if (route.query.session_id) {
+    await restoreSession();
+    initialized.value = true;
+    return;
+  }
 
   const { data } = await api.get("/prescriptions/templates");
 
@@ -624,9 +654,21 @@ onMounted(async () => {
 
     }
 
-  } catch {}
+  } catch (error) {
+    if (error?.response?.status !== 404) throw error;
+    prescriptionId.value = 0; loadedPlan.value = null;
+  }
 
-  if (route.query.prescription_id) {
+  if (startIntent.value) {
+    exerciseId.value = startIntent.value.exercise_id;
+    prescriptionId.value = startIntent.value.prescription_id;
+    inputMode.value = startIntent.value.input_mode;
+    if (loadedPlan.value?.id !== prescriptionId.value) {
+      loadedPlan.value = null;
+      exercises.value = all;
+    }
+    if (!exercises.value.some(e => e.id === exerciseId.value)) exercises.value.push({ id: exerciseId.value, name: exerciseId.value });
+  } else if (route.query.prescription_id && !route.query.session_id) {
     if (String(loadedPlan.value?.id) !== String(route.query.prescription_id)) {
       planLinkError.value = true;
       throw new Error('训练计划已更新或无法读取，请返回训练计划重新选择。');
@@ -683,10 +725,42 @@ onMounted(async () => {
     }
   }
 
-  await restoreSession();
+  if (!startIntent.value) await restoreSession();
+  initialized.value = true;
   } catch (e) { err.value = errorMessage(e, "训练页面读取失败，请刷新重试"); }
   finally { busy.value = false; }
-});
+}
+onMounted(initialize);
+
+async function adoptSession(row, restored = false) {
+  if (row.status !== 'running') {
+    stopCam();
+    await router.replace(row.status === 'finished'
+      ? { path: '/report', query: { session_id: row.id } } : { path: '/history' });
+  } else {
+    session.value = row;
+    exerciseId.value = row.exercise_id;
+    if (!exercises.value.some(e => e.id === row.exercise_id)) exercises.value.push({ id: row.exercise_id, name: row.exercise_name });
+    prescriptionId.value = row.prescription_id;
+    inputMode.value = ['camera_live_only', 'camera'].includes(row.pose_summary?.source) ? 'camera' : 'video';
+    savedPayload.value = { video_path: row.video_path || '', pose_summary: row.pose_summary || {} };
+    cameraFrames.value = row.pose_summary?.sequences?.mediapipe33?.frames || [];
+    cameraOffset = cameraFrames.value.at(-1)?.t_ms || 0;
+    cameraBase = performance.now() - cameraOffset;
+    captureClock.reset(row.pose_summary?.capture_session?.active_ms);
+    activeMs.value = captureClock.elapsed(); paused.value = !camOn.value;
+    lastSavedAt.value = ''; draftDirty.value = false;
+    localStorage.setItem('ah_last_session', String(row.id));
+    await router.replace({ path: '/exercise', query: { session_id: row.id } });
+    hint.value = restored ? '已找回上次建立的训练，没有重复创建。保存的数据将用于生成报告。'
+      : inputMode.value === 'video' ? '训练已建立，可回看视频后生成报告。' : '训练已开始，请全身入画。中途可暂停。';
+  }
+  if (startIntent.value && row.start_key === startIntent.value.start_key) {
+    startRecovery.clear(startIntent.value.start_key);
+    startIntent.value = null;
+  }
+  pendingStartBody.value = null;
+}
 
 async function restoreSession() {
   if (route.query.prescription_id && !route.query.session_id) return;
@@ -706,23 +780,7 @@ async function restoreSession() {
       }
       return;
     }
-    session.value = row;
-    exerciseId.value = row.exercise_id;
-    if (!exercises.value.some(e => e.id === row.exercise_id)) exercises.value.push({ id: row.exercise_id, name: row.exercise_name });
-    prescriptionId.value = row.prescription_id;
-    inputMode.value = ['camera_live_only', 'camera'].includes(row.pose_summary?.source) ? 'camera' : 'video';
-    if (inputMode.value === 'camera') {
-      cameraFrames.value = row.pose_summary?.sequences?.mediapipe33?.frames || [];
-      cameraOffset = cameraFrames.value.at(-1)?.t_ms || 0;
-      captureClock.reset(row.pose_summary?.capture_session?.active_ms);
-      activeMs.value = captureClock.elapsed(); paused.value = true;
-    }
-    lastSavedAt.value = '';
-    draftDirty.value = false;
-    savedPayload.value = { video_path: row.video_path || "", pose_summary: row.pose_summary || {} };
-    hint.value = "已恢复未完成训练；保存的数据将用于生成报告。";
-    localStorage.setItem("ah_last_session", String(row.id));
-    await router.replace({ path: "/exercise", query: { session_id: row.id } });
+    await adoptSession(row, true);
   } catch (e) {
     if (route.query.session_id) throw e;
     if (e?.response?.status !== 404) throw e;
@@ -1063,41 +1121,31 @@ function stopCam() {
 
 
 async function start() {
-  if (planLinkError.value || busy.value || session.value || (!pendingStartBody.value && !canStart.value)) return;
+  if (!initialized.value || planLinkError.value || busy.value || session.value || (!pendingStartBody.value && !canStart.value)) return;
+  const recovering = !!startIntent.value;
   err.value = ''; busy.value = true;
   try {
     if (!pendingStartBody.value) {
+      startIntent.value = startRecovery.begin({ exercise_id: exerciseId.value,
+        prescription_id: prescriptionId.value, input_mode: inputMode.value });
       const name = exercises.value.find(e => e.id === exerciseId.value)?.name || exerciseId.value;
       pendingStartBody.value = JSON.parse(JSON.stringify({
         user_id: user.id, exercise_id: exerciseId.value, exercise_name: name,
-        prescription_id: prescriptionId.value, start_key: crypto.randomUUID(), ...buildSubmission(),
+        prescription_id: prescriptionId.value, start_key: startIntent.value.start_key, ...buildSubmission(),
       }));
     }
     // Keep the exact request after a lost response; the server returns the original record.
     const { data } = await api.post('/sessions/start', pendingStartBody.value);
-    pendingStartBody.value = null;
-    const row = data.session;
-    if (row.status !== 'running') {
-      stopCam();
-      await router.replace(row.status === 'finished'
-        ? { path: '/report', query: { session_id: row.id } } : { path: '/history' });
-      return;
-    }
-    session.value = row;
-    savedPayload.value = { video_path: row.video_path || '', pose_summary: row.pose_summary || {} };
-    cameraFrames.value = row.pose_summary?.sequences?.mediapipe33?.frames || [];
-    cameraOffset = cameraFrames.value.at(-1)?.t_ms || 0;
-    cameraBase = performance.now() - cameraOffset;
-    captureClock.reset(row.pose_summary?.capture_session?.active_ms);
-    paused.value = !camOn.value;
-    draftDirty.value = false;
-    localStorage.setItem('ah_last_session', String(row.id));
-    await router.replace({ path: '/exercise', query: { session_id: row.id } });
-    hint.value = inputMode.value === 'video' ? '训练已建立，可回看视频后生成报告。' : '训练已开始，请全身入画。中途可暂停。';
+    await adoptSession(data.session);
   } catch (e) {
-    // A definite client error did not create a record. Network/server errors remain retryable.
-    if (e?.response?.status >= 400 && e.response.status < 500) pendingStartBody.value = null;
-    err.value = errorMessage(e, '开始请求未确认，请点击“重试开始”。重试会找回同一条记录。');
+    // An invalid first attempt is safe to discard. A prior uncertain attempt may still commit.
+    if (!recovering && [400, 422].includes(e?.response?.status) && startIntent.value) {
+      startRecovery.clear(startIntent.value.start_key);
+      startIntent.value = null; pendingStartBody.value = null;
+    }
+    err.value = errorMessage(e, startIntent.value
+      ? '开始请求未确认，请点击“重试开始”或“检查上次开始结果”。刷新后也会先检查原请求。'
+      : '无法准备开始记录，请允许本站保存数据后重试。');
   } finally { busy.value = false; syncClock(); }
 }
 

@@ -1,5 +1,5 @@
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -74,6 +74,18 @@ def owned_session(db, session_id, user_id):
     if not row or row.user_id != user_id:
         raise HTTPException(404, "训练不存在或不属于当前用户")
     return row
+
+
+@router.get("/start-requests/{start_key}")
+def find_start(
+    start_key: str = Path(min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"),
+    actor: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    # Read-only lookup. A missing row may still be in flight; clients must retain the key.
+    row = db.query(ExerciseSession).filter_by(user_id=actor.id, start_key=start_key).first()
+    if not row:
+        raise HTTPException(404, "尚未查到这次开始请求，请沿用原请求重试")
+    return {"session": row}
 
 
 @router.get("/{session_id}")

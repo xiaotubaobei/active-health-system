@@ -1,23 +1,27 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { createCaptureClock } from '../src/utils/captureClock.js';
+import { createStartRecovery } from '../src/utils/startRecovery.js';
 import { validateVideoFile, checkAborted } from '../src/utils/videoInput.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 // Run the actual page logic with browser/network boundaries replaced. No camera or health data is needed.
-function page(put, post, get, cameraReady = () => true, processVideoFile) {
+function page(put, post, get, cameraReady = () => true, processVideoFile, options = {}) {
   const source = readFileSync(new URL('../src/views/Exercise.vue', import.meta.url), 'utf8')
     .split('<script setup>')[1].split('</script>')[0]
     .replace(/import[\s\S]*?from\s*["'][^"']+["'];/g, '');
   let now = 1000;
+  const entries = options.entries || new Map();
+  const navigation = [];
   const context = vm.createContext({
     ref: value => ({ value }), computed: fn => ({ get value() { return fn(); } }),
     onMounted() {}, onBeforeUnmount() {}, onBeforeRouteLeave() {}, watch() {},
-    getUser: () => ({ id: 1 }), useRoute: () => ({ query: {} }), useRouter: () => ({ replace: async () => {}, push: async () => {} }),
+    getUser: () => ({ id: 1 }), useRoute: () => ({ query: options.query || {} }), useRouter: () => ({ replace: async target => navigation.push(target), push: async target => navigation.push(target) }),
     api: { put, post, get }, createCaptureClock: () => createCaptureClock(() => now),
     crypto: { randomUUID: () => "test-request-1234567890" },
     localStorage: { setItem() {}, removeItem() {} },
+    createStartRecovery, sessionStorage: { getItem: key => entries.get(key) || null, setItem: (key, value) => entries.set(key, value), removeItem: key => entries.delete(key) },
     createPoseCamera: options => ({ start: async () => { options.onReady(cameraReady()); return true; }, stop() {} }), errorMessage: (e, fallback) => e.response?.data?.detail || fallback,
     isOfflineRtmpose: () => false, performance: { now: () => now },
     landmarksToMp33Frame: (landmarks, t_ms, frame_index) => ({ landmarks, t_ms, frame_index }),
@@ -28,11 +32,13 @@ function page(put, post, get, cameraReady = () => true, processVideoFile) {
     session, busy, inputMode, cameraFrames, draftDirty, draftConflict, saveError, saving,
     start, pendingStartBody, camOn, poseReady, paused, pauseCapture, syncClock, activeMs, savedPayload, buildSubmission,
     loadRecommendedDemo, demoVideos, demoPickId, exerciseId, recommendedDemo, err, resumeCapture,
-    runVideoProcess, cancelVideoProcessing, videoFile, videoProcessing, hint, mpFrames, previewOn };`, context);
+    runVideoProcess, cancelVideoProcessing, videoFile, videoProcessing, hint, mpFrames, previewOn,
+    initialize, initialized, startIntent, canStart, prescriptionId };`, context);
   const c = context.check;
   c.session.value = { id: 1, draft_revision: 0 };
   c.busy.value = false; c.inputMode.value = 'camera';
-  return { c, tick: delta => { now += delta; } };
+  c.initialized.value = true;
+  return { c, entries, navigation, tick: delta => { now += delta; } };
 }
 
 test('cancelling page video parsing releases busy state and allows a new attempt', async () => {
@@ -158,7 +164,7 @@ test('lost start response retries exactly the same key and input', async () => {
   const { c } = page(async () => ({}), async (url, body) => {
     requests.push(JSON.parse(JSON.stringify(body)));
     if (requests.length === 1) throw new Error('lost response');
-    return { data: { session: { id: 12, status: 'running', pose_summary: body.pose_summary } } };
+    return { data: { session: { ...body, id: 12, status: 'running' } } };
   });
   c.session.value = null; c.camOn.value = true; c.poseReady.value = true;
   await c.start();
@@ -186,4 +192,132 @@ test('a restored session can retry a failed model load without refreshing', asyn
   assert.equal(c.poseReady.value, true);
   assert.equal(c.paused.value, false);
   assert.equal(c.err.value, '');
+});
+
+test('reload finds a committed start without posting again or relying on current plan', async () => {
+  let posts = 0, committed;
+  const first = page(undefined, async (url, body) => {
+    posts++; committed = { ...body, id: 21, status: 'running', draft_revision: 2 };
+    throw new Error('response lost');
+  });
+  first.c.session.value = null; first.c.camOn.value = true; first.c.poseReady.value = true;
+  await first.c.start();
+  const stored = JSON.parse(first.entries.get('ah_pending_start:1'));
+  assert.deepEqual(Object.keys(stored).sort(), ['exercise_id', 'input_mode', 'prescription_id', 'start_key']);
+  const second = page(undefined, () => { posts++; }, async url => {
+    assert.match(url, /^\/sessions\/start-requests\//);
+    return { data: { session: committed } };
+  }, undefined, undefined, { entries: first.entries });
+  second.c.session.value = null;
+  await second.c.initialize();
+  assert.equal(posts, 1);
+  assert.equal(second.c.session.value.id, 21);
+  assert.equal(second.c.session.value.draft_revision, 2);
+  assert.equal(second.c.paused.value, true);
+  assert.equal(first.entries.size, 0);
+  assert.equal(second.navigation[0].query.session_id, 21);
+});
+
+function pendingEntries() {
+  return new Map([['ah_pending_start:1', JSON.stringify({ start_key: 'retry-after-reload-123',
+    exercise_id: 'squat', prescription_id: 0, input_mode: 'camera' })]]);
+}
+
+test('a missing start remains pending and retries the same key after preparing input', async () => {
+  let sent;
+  const { c, entries } = page(undefined, async (url, body) => {
+    sent = body; return { data: { session: { ...body, id: 22, status: 'running' } } };
+  }, async url => {
+    if (url.includes('start-requests') || url.includes('/current')) throw { response: { status: 404 } };
+    return { data: url.includes('templates') ? { fitness: { exercises: [{ id: 'squat', name: '深蹲' }] } } : { videos: [] } };
+  }, undefined, undefined, { entries: pendingEntries() });
+  c.session.value = null;
+  await c.initialize();
+  assert.equal(sent, undefined);
+  assert.equal(entries.size, 1);
+  c.camOn.value = true; c.poseReady.value = true;
+  await c.start();
+  assert.equal(sent.start_key, 'retry-after-reload-123');
+  assert.equal(entries.size, 0);
+});
+
+test('lookup failure blocks new starts until recovery succeeds', async () => {
+  let online = false, posts = 0;
+  const { c, entries } = page(undefined, () => { posts++; }, async () => {
+    if (!online) throw new Error('offline');
+    return { data: { session: { id: 23, status: 'cancelled', start_key: 'retry-after-reload-123' } } };
+  }, undefined, undefined, { entries: pendingEntries() });
+  c.session.value = null;
+  await c.initialize();
+  assert.equal(c.initialized.value, false);
+  assert.equal(c.canStart.value, false);
+  await c.start();
+  assert.equal(posts, 0);
+  assert.equal(entries.size, 1);
+  online = true; await c.initialize();
+  assert.equal(c.initialized.value, true);
+  assert.equal(entries.size, 0);
+});
+
+test('plan server failures block starting instead of falling back to a free session', async () => {
+  let posts = 0;
+  const { c } = page(undefined, () => { posts++; }, async url => {
+    if (url.includes('/current')) throw { response: { status: 500, data: { detail: '计划读取失败' } } };
+    return { data: { fitness: { exercises: [{ id: 'squat' }] } } };
+  });
+  c.session.value = null; c.camOn.value = true; c.poseReady.value = true;
+  await c.initialize(); await c.start();
+  assert.equal(c.initialized.value, false);
+  assert.equal(posts, 0);
+  assert.match(c.err.value, /计划读取失败/);
+});
+
+test('explicit saved session restoration does not depend on the current prescription', async () => {
+  const { c } = page(undefined, undefined, async url => {
+    assert.equal(url, '/sessions/24');
+    return { data: { session: { id: 24, exercise_id: 'squat', prescription_id: 4,
+      status: 'running', pose_summary: { source: 'camera' } } } };
+  }, undefined, undefined, { query: { session_id: 24, prescription_id: 1 } });
+  c.session.value = null;
+  await c.initialize();
+  assert.equal(c.session.value.id, 24);
+  assert.equal(c.prescriptionId.value, 4);
+  assert.equal(c.initialized.value, true);
+});
+
+test('a rejected retry does not forget an earlier uncertain request', async () => {
+  let attempts = 0;
+  const { c, entries } = page(undefined, async () => {
+    attempts++;
+    if (attempts === 1) throw new Error('offline');
+    throw { response: { status: 400, data: { detail: '输入无效' } } };
+  });
+  c.session.value = null; c.camOn.value = true; c.poseReady.value = true;
+  await c.start(); await c.start();
+  assert.equal(attempts, 2);
+  assert.equal(entries.size, 1);
+  assert.ok(c.pendingStartBody.value);
+});
+
+test('an invalid first attempt releases the recovery lock for correction', async () => {
+  const { c, entries } = page(undefined, async () => {
+    throw { response: { status: 422, data: { detail: '输入无效' } } };
+  });
+  c.session.value = null; c.camOn.value = true; c.poseReady.value = true;
+  await c.start();
+  assert.equal(entries.size, 0);
+  assert.equal(c.startIntent.value, null);
+  assert.equal(c.pendingStartBody.value, null);
+});
+
+test('recovery of an already finished start opens its original report', async () => {
+  const { c, entries, navigation } = page(undefined, undefined, async () => ({
+    data: { session: { id: 25, status: 'finished', start_key: 'retry-after-reload-123' } },
+  }), undefined, undefined, { entries: pendingEntries() });
+  c.session.value = null;
+  await c.initialize();
+  assert.equal(c.session.value, null);
+  assert.equal(entries.size, 0);
+  assert.equal(navigation[0].path, '/report');
+  assert.equal(navigation[0].query.session_id, 25);
 });
