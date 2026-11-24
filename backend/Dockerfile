@@ -6,6 +6,7 @@ COPY backend /app/backend
 COPY data/fitness_scales /app/data/fitness_scales
 COPY data/prescription_templates /app/data/prescription_templates
 COPY scripts/set_user_role.py /app/scripts/set_user_role.py
+COPY scripts/backup_data.py /app/scripts/backup_data.py
 RUN mkdir -p /app/storage /app/uploads
 WORKDIR /app/backend
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

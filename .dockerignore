@@ -13,6 +13,7 @@
 !deploy/Caddyfile
 !scripts/
 !scripts/set_user_role.py
+!scripts/backup_data.py
 backend/**/__pycache__/
 backend/.venv/
 frontend/node_modules/

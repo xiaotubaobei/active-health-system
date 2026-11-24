@@ -64,17 +64,35 @@ Remove-Item Env:POSE_MODEL_FILE
 
 ## 更新、备份与恢复
 
-更新前先备份，确认没有人在训练。下列备份会短暂停止整个网站，防止数据库与视频在备份期间变化。归档含个人资料，放在服务器私有目录，不提交 Git；建议复制到另一台受控设备。
+更新前先备份，确认没有人在训练。下列操作会短暂停止整个网站，防止数据库与视频在备份期间变化。归档含个人资料，放在服务器私有目录，不提交 Git；建议复制到另一台受控设备。归档没有加密，文件哈希用于发现损坏，不能证明备份来自可信人员。
+
+现在提供 `scripts/backup_data.py`，只用 Python 标准库，可执行备份、只读校验、恢复到空目录。数据库使用 SQLite 快照，包含已提交的 WAL 数据；不直接复制正在使用的 `.db`。归档记录文件大小、SHA256、生成时间、代码编号和主要数据表的记录数，生成后自动复核所有文件及数据库完整性。备份失败不留下可被误用的正式归档。数据库快照本身支持 WAL，但数据库与上传文件的整体一致性仍要求停站。
+
+工具只备份数据库及 `uploads` 普通文件，不包含代码、环境变量、HTTPS 证书、模型或演示视频。临时校验和恢复需要可写的临时目录和额外磁盘空间，至少为展开后的数据预留一份空间；容器内校验使用容器的临时磁盘，不是 `/backup` 卷。旧的手工 tar 归档没有清单，不能直接用新工具恢复；保留旧归档，升级到本次代码后先创建一份新备份。
+
+首次使用新工具，先构建包含它的 API 镜像（构建不会替换正在运行的服务）。以后日常备份无需每次构建：
+
+```sh
+docker compose --env-file deploy/.env -f compose.production.yml build api
+```
+
+备份步骤：
 
 ```sh
 mkdir -p backups
 chmod 700 backups
 docker compose --env-file deploy/.env -f compose.production.yml stop
-docker compose --env-file deploy/.env -f compose.production.yml run --rm --no-deps -v "$PWD/backups:/backup" api python -c 'import tarfile, datetime; name="/backup/health-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")+".tar.gz"; t=tarfile.open(name,"w:gz"); t.add("/app/storage",arcname="storage"); t.add("/app/uploads",arcname="uploads"); t.close(); print(name)'
+docker compose --env-file deploy/.env -f compose.production.yml run --rm --no-deps -v "$PWD/backups:/backup" api python /app/scripts/backup_data.py create --output-dir /backup --label "$(git rev-parse HEAD)"
 docker compose --env-file deploy/.env -f compose.production.yml start
 ```
 
-确认备份命令成功并检查归档后再更新：
+备份命令失败时也先执行上面的 `start` 恢复站点，排查原因后重新备份，不接着更新。成功时会输出实际归档文件名。可随时独立复核，把下面文件名替换为实际文件名；只读校验不需要停站：
+
+```sh
+docker compose --env-file deploy/.env -f compose.production.yml run --rm --no-deps -v "$PWD/backups:/backup:ro" api python /app/scripts/backup_data.py verify /backup/health-实际文件名.tar.gz
+```
+
+确认备份命令成功，并记录备份对应的完整代码编号后再更新：
 
 ```sh
 git pull --ff-only
@@ -84,6 +102,39 @@ python3 scripts/check_deployment.py https://你的域名 --camera-assets
 
 普通 `stop`、`down` 和重建镜像保留数据卷；**不要使用 `down -v`**，它会删除持久数据。首次生产部署使用全新数据库，不会自动迁入本机旧数据。
 
-恢复时先停站，保留当前数据卷副本，再在维护窗口将已核对的备份中 `storage/` 和 `uploads/` 内容分别恢复到对应卷。使用备份时的代码版本启动并完成上述验收。不要直接覆盖正在运行的 SQLite 文件；代码回退不会自动回退数据库结构。
+### 恢复到新数据卷
+
+工具不会覆盖非空数据库目录或上传目录。恢复前完整校验归档、文件路径、每个文件哈希和 SQLite 完整性；校验失败时不会写目标数据卷。不解压符号链接、硬链接、越界路径或重复文件。复制中途出错会清理本次已创建的文件，不能代替停站和磁盘容量检查。
+
+先完成上面的 `verify`，停站并保留原项目及原数据卷，在维护窗口使用备份清单 `label` 中记录的代码版本。可在单独克隆中检出该版本，复制受控的 `deploy/.env` 并构建镜像。以下命令在该代码目录执行，使用一个**此前没有使用过的**项目名 `active-health-restored` 创建新数据卷；如该名称已有数据，改用新的名称。不要删除或清空原来的卷：
+
+```sh
+# 在原部署目录停止原站点，确认没有其他进程写入原数据。
+docker compose --env-file deploy/.env -f compose.production.yml stop
+
+# 在备份对应代码目录执行；将备份目录改为实际绝对路径。
+docker compose -p active-health-restored --env-file deploy/.env -f compose.production.yml build
+docker compose -p active-health-restored --env-file deploy/.env -f compose.production.yml run --rm --no-deps -v "/实际备份目录:/backup:ro" api python /app/scripts/backup_data.py restore /backup/health-实际文件名.tar.gz
+
+# 仅在恢复命令成功后启动新站点。
+docker compose -p active-health-restored --env-file deploy/.env -f compose.production.yml up -d
+python3 scripts/check_deployment.py https://你的域名 --camera-assets
+```
+
+新项目的证书数据卷也是全新的，需要重新完成证书签发。原项目停止后才能使用相同的 80/443 端口。不要同时启动原站点和恢复站点。新站点验收完成前，原项目和原卷继续保留；若恢复失败，停止新项目，在原目录按原代码版本启动原项目。切换后若新站点已有新数据，不要直接切回旧卷，以免漏掉新记录。后续更新、备份和查看日志均须继续带 `-p active-health-restored`，否则操作到的是原项目。
+
+除命令行检查外，还需登录自己的测试账号，核对档案、计划、历史、旧报告、未完成训练和上传文件；换另一个账号确认仍不能查看别人的资料。代码回退不会自动回退数据库结构。需要迁移到 PostgreSQL 时须另做备份方案，本工具只支持本方案中的 SQLite。
+
+### 本机恢复演练
+
+工具也可在 Windows 使用，必须明确提供本机路径。下例只展示参数，先停止后端；数据库/上传路径应替换为**待备份的真实位置**，恢复位置须是新的空目录，不要指向当前项目：
+
+```powershell
+.venv/Scripts/python.exe scripts/backup_data.py create --database C:/数据目录/active_health.db --uploads C:/数据目录/uploads --output-dir C:/备份目录 --label 本次代码编号
+.venv/Scripts/python.exe scripts/backup_data.py verify C:/备份目录/实际文件名.tar.gz
+.venv/Scripts/python.exe scripts/backup_data.py restore C:/备份目录/实际文件名.tar.gz --storage C:/恢复演练/storage --uploads C:/恢复演练/uploads
+```
+
+自动恢复检查使用临时数据库和虚构账号，覆盖恢复后登录、旧报告、未完成训练继续保存、账号隔离和文件字节恢复，以及 WAL、损坏归档、越界路径、非空目标和复制中断。它不等于服务器 Docker 已启动或手机验收通过。
 
 配置依据：[Caddy 路径代理](https://caddyserver.com/docs/caddyfile/directives/handle_path)、[页面回退](https://caddyserver.com/docs/caddyfile/directives/try_files)、[Compose 健康检查启动顺序](https://docs.docker.com/compose/how-tos/startup-order)。
