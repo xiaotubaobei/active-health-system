@@ -29,7 +29,7 @@
 
 <script setup>
 import { reactive, ref } from "vue";
-import api, { getUser, setUser } from "../api/client";
+import api, { errorMessage, getUser, setUser } from "../api/client";
 
 const user = getUser();
 const form = reactive({
@@ -58,7 +58,7 @@ async function save() {
     setUser({ ...user, ...data });
     msg.value = "档案已保存，可用于体适能与处方生成。";
   } catch (e) {
-    err.value = e?.response?.data?.detail || "保存失败";
+    err.value = errorMessage(e, "保存失败，请检查连接后重试");
   } finally {
     busy.value = false;
   }

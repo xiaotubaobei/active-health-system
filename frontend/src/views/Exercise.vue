@@ -6,14 +6,15 @@
     <p v-if="planTarget" class="muted">训练计划 v{{ planTarget.version }} · {{ planTarget.exercise.name }} · 目标 {{ planTarget.exercise.sets }}组 × {{ planTarget.exercise.reps }}{{ planTarget.exercise.unit || '次' }}。这是计划目标，不代表已完成量。</p>
     <p v-if="planTarget && planTarget.status !== 'formal_prescription'" class="muted">此计划尚未人工审核通过。</p>
     <p v-if="session" class="muted">训练 #{{ session.id }} 已保存。刷新或离开后，可从训练历史继续。</p>
-    <p v-if="savedPayload" class="ok">已有训练输入保存在服务端，可继续训练或结束生成报告。视频预览需重新选择文件；摄像头需重新打开。</p>
+    <p v-if="savedPayload" class="ok">训练输入已保存在服务端，可直接结束并生成报告。{{ inputMode === 'camera' ? '继续采集需重新打开摄像头。' : '刷新后不会恢复视频预览，已保存的姿态数据仍会用于报告。' }}</p>
+    <p v-if="busy && !session && !videoProcessing" role="status">正在准备，请稍候…</p>
     <div v-if="session" role="status">
       <p>{{ saving ? '正在保存…' : draftDirty ? '有数据尚未保存' : saveState || '训练已建立' }}<span v-if="lastSavedAt"> · 最近保存 {{ lastSavedAt }}</span></p>
       <p v-if="saveError" role="alert">{{ saveError }}</p>
       <p v-if="inputMode === 'camera'">已采集 {{ cameraFrames.length }} / 1200 帧<span v-if="cameraFrames.length >= captureLimit">；已达到上限，请结束并保存本次训练。</span></p>
       <button class="secondary" :disabled="busy || saving || draftConflict" @click="retrySave">立即保存 / 重试</button>
       <router-link v-if="draftConflict" :to="{ path: '/history' }">返回记录核对训练</router-link>
-      <p class="muted">摄像头姿态每秒最多采样2帧，每10秒自动保存。未保存的数据在刷新后可能丢失；不会保存摄像头原视频。每次最多采集1200帧，约10分钟；达到上限后请结束本次训练。</p>
+      <p v-if="inputMode === 'camera'" class="muted">摄像头姿态每秒最多采样2帧，每10秒自动保存。未保存的数据在刷新后可能丢失；不会保存摄像头原视频。每次最多采集1200帧，约10分钟；达到上限后请结束本次训练。</p>
     </div>
     <router-link to="/history">查看训练历史 / 找回未完成训练</router-link>
 
@@ -140,7 +141,7 @@
 
         <div v-if="!previewOn" class="hint">
 
-          {{ inputMode === "video" ? "请选择演示样本或本地视频；解析后可直接播放，骨架会跟着走。" : "尚未开启摄像头。" }}
+          {{ inputMode === "video" ? savedPayload ? "已恢复保存的姿态数据，可直接生成报告。当前没有视频预览。" : "请选择演示样本或本地视频；解析后可直接播放，骨架会跟着走。" : "尚未开启摄像头。" }}
 
         </div>
 
@@ -183,7 +184,7 @@
 
         <p v-if="session" style="margin-top:12px"><span class="tag on">会话 #{{ session.id }} 进行中</span></p>
 
-        <p class="muted" v-if="inputMode === 'video'">
+        <p class="muted" v-if="inputMode === 'video' && (mpFrameCount || savedPayload)">
 
           视频已解析为姿态数据，结束训练后用于生成报告。
 

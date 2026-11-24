@@ -1,4 +1,5 @@
 import axios from "axios";
+import { loginDestination } from "../utils/authNavigation";
 
 const api = axios.create({
   baseURL: "/api",
@@ -8,9 +9,10 @@ const api = axios.create({
 });
 
 api.interceptors.response.use(response => response, error => {
-  if (error?.response?.status === 401 && !["/auth/login", "/auth/register"].includes(error.config?.url)) {
+  if (error?.response?.status === 401 && !error.config?.skipAuthRedirect && !["/auth/login", "/auth/register"].includes(error.config?.url)) {
+    const destination = loginDestination(window.location.pathname + window.location.search + window.location.hash, !!getUser());
     clearUser();
-    if (window.location.pathname !== "/login") window.location.replace("/login?expired=1");
+    if (window.location.pathname !== "/login") window.location.replace(`/login?${new URLSearchParams(destination.query)}`);
   }
   return Promise.reject(error);
 });
@@ -36,6 +38,11 @@ export function clearUser() {
 
 export function errorMessage(error, fallback = "操作失败，请稍后重试") {
   const detail = error?.response?.data?.detail;
+  if (Array.isArray(detail)) {
+    const names = { height_cm: "身高", weight_kg: "体重", waist_cm: "腰围", hip_cm: "臀围", age_group: "年龄组", goal: "运动目标", body_fat: "体脂率" };
+    const fields = [...new Set(detail.map(item => names[item.loc?.at(-1)]).filter(Boolean))];
+    return fields.length ? `请检查${fields.join("、")}：填写有效数值或选项后重试。` : fallback;
+  }
   return typeof detail === "string" ? detail : fallback;
 }
 

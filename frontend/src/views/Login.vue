@@ -23,6 +23,7 @@
 import { ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import api, { errorMessage, setUser } from "../api/client";
+import { safeReturnPath } from "../utils/authNavigation";
 
 const router = useRouter();
 const route = useRoute();
@@ -49,7 +50,8 @@ async function submit() {
     });
     setUser(data.user);
     const reviewer = ["physician", "prescription_specialist"].includes(data.user.role);
-    await router.push(reviewer ? "/reviews" : data.user.onboarding_done ? "/" : "/onboarding");
+    const destination = safeReturnPath(route.query.next, reviewer ? "/reviews" : "/");
+    await router.replace(data.user.onboarding_done ? destination : reviewer ? "/reviews" : "/onboarding");
   } catch (error) { err.value = errorMessage(error, "操作失败，请确认后端已启动。"); }
   finally { busy.value = false; }
 }

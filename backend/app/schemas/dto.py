@@ -15,11 +15,11 @@ class RegisterIn(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    age_group: str | None = None
-    height_cm: float | None = None
-    weight_kg: float | None = None
+    age_group: Literal["youth", "middle_age", "elder"] | None = None
+    height_cm: float | None = Field(default=None, gt=0, le=300, allow_inf_nan=False)
+    weight_kg: float | None = Field(default=None, gt=0, le=700, allow_inf_nan=False)
     chronic_tags: list[str] | None = None
-    goal: str | None = None
+    goal: Literal["fitness", "medical"] | None = None
     privacy_consent: bool | None = None
 
 
@@ -47,9 +47,9 @@ class BodyParseIn(BaseModel):
     user_id: int
     image_path: str = ""
     clicks: list[dict] = Field(default_factory=list)
-    waist_cm: float | None = None
-    hip_cm: float | None = None
-    body_fat: float | None = None
+    waist_cm: float | None = Field(default=None, gt=0, le=300, allow_inf_nan=False)
+    hip_cm: float | None = Field(default=None, gt=0, le=300, allow_inf_nan=False)
+    body_fat: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
 
 
 class PrescriptionGenerateIn(BaseModel):

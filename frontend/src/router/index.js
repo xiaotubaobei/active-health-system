@@ -1,8 +1,10 @@
 import { createRouter, createWebHistory } from "vue-router";
-import api, { clearUser, setUser } from "../api/client";
+import api, { clearUser, getUser, setUser } from "../api/client";
+import { createAuthGuard } from "../utils/authNavigation";
 
 const routes = [
   { path: "/login", name: "login", component: () => import("../views/Login.vue") },
+  { path: "/connection", name: "connection", component: () => import("../views/Connection.vue") },
   { path: "/onboarding", name: "onboarding", component: () => import("../views/Onboarding.vue") },
   { path: "/history", name: "history", component: () => import("../views/History.vue") },
   { path: "/", name: "home", component: () => import("../views/Home.vue") },
@@ -14,6 +16,7 @@ const routes = [
   { path: "/exercise", name: "exercise", component: () => import("../views/Exercise.vue") },
   { path: "/report", name: "report", component: () => import("../views/Report.vue") },
   { path: "/admin", name: "admin", component: () => import("../views/Admin.vue") },
+  { path: "/:pathMatch(.*)*", name: "not-found", component: () => import("../views/NotFound.vue") },
 ];
 
 const router = createRouter({
@@ -21,21 +24,6 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach(async (to) => {
-  if (to.path === "/login") return true;
-  try {
-    const { data: user } = await api.get("/users/me", { timeout: 5000 });
-    setUser(user);
-    const reviewerPage = to.path === "/reviews" && ["physician", "prescription_specialist"].includes(user.role);
-    if (to.path !== "/onboarding" && !reviewerPage && !user.onboarding_done) return "/onboarding";
-  } catch (error) {
-    if ([401, 404].includes(error?.response?.status)) {
-      clearUser();
-      return "/login";
-    }
-    return { path: "/login", query: { unavailable: "1" } };
-  }
-  return true;
-});
+router.beforeEach(createAuthGuard({ api, getUser, setUser, clearUser }));
 
 export default router;

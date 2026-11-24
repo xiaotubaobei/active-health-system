@@ -111,6 +111,7 @@ python scripts\setup_offline_demo.py
 
 ## 文档
 
+- [用户流程实测与下一步](docs/user_journey_20261124.md)：2026-11-24 的完整流程、已修问题与剩余验收项。
 - [docs/module_map.md](docs/module_map.md) 申请书条款对照  
 - [docs/architecture.md](docs/architecture.md) 架构  
 - [docs/api.md](docs/api.md) API  
