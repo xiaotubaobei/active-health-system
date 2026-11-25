@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from .config import VERSION, ALLOWED_ORIGINS
 from .security import get_current_user
@@ -16,6 +18,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Active Health Intelligent Service", version=VERSION, lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_errors(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith("/auth/"):
+        # Pydantic normally echoes rejected input, which can include passwords.
+        return JSONResponse(status_code=422, content={"detail": [
+            {"type": e["type"], "loc": e["loc"], "msg": e["msg"]} for e in exc.errors()
+        ]})
+    return await request_validation_exception_handler(request, exc)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,

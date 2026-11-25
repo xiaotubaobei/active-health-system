@@ -14,6 +14,11 @@ class RegisterIn(BaseModel):
     role: Literal["user"] = "user"
 
 
+class PasswordChangeIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class UserUpdate(BaseModel):
     age_group: Literal["youth", "middle_age", "elder"] | None = None
     height_cm: float | None = Field(default=None, gt=0, le=300, allow_inf_nan=False)

@@ -27,6 +27,13 @@ class AuthSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
 
 
+class AuthRateLimit(Base):
+    __tablename__ = "auth_rate_limits"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
 class FitnessAssessment(Base):
     __tablename__ = "fitness_assessments"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

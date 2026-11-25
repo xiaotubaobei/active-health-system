@@ -28,12 +28,23 @@
 
 普通用户不能直接推进处方状态（403），修改本地缓存或提交 `role` 不能提权。跨用户审核只开放用户明确提交给指定人的资料快照，不开放其他个人接口。配置、迁移和验收详见 [authentication.md](authentication.md) 和 [prescription_review.md](prescription_review.md)。
 
+### 修改密码与尝试限制
+
+`POST /auth/change-password` 需登录，请求为 `{current_password, new_password}`，不接受目标用户编号。当前密码最长128字符；新密码8–128字符，不能与当前密码相同，保留首尾空格。演示账号不支持修改。
+
+成功返回 `{ok: true, reauthenticate: true}`，在同一事务中更新密码并撤销本人全部设备的登录凭证，再清除当前 Cookie。训练等业务记录保留。客户端收到成功后必须返回登录页，不继续使用旧 token。
+
+当前密码错误或新旧密码相同返回400，登录仍有效；未登录或凭证过期401，演示账号/来源检查拒绝403，另一请求先改密409，字段格式错误422。`/auth/*` 的422响应不回传原始输入，避免包含密码。改密请求没有自动重试：响应丢失、5xx或409时返回登录确认，先尝试新密码，不成功再尝试原密码。
+
+登录和改密分别使用60秒窗口的数据库额度：同一来源及账号组合5次、同一账号跨来源20次、同一来源跨账号60次。正确密码只清除组合额度；两个总额度保留到窗口结束。超限返回429及秒数形式 `Retry-After`，客户端等待后再试，不退出当前有效登录。来源由服务器识别的连接地址决定，不在应用内读取任意 `X-Forwarded-For`。可信代理配置与限制见账号说明。
+
 ## 业务
 
 - `GET /health`
 - `POST /auth/login` `{username, password}`
 - `POST /auth/register` `{username, password, privacy_consent: true}`
 - `POST /auth/logout` 撤销当前登录凭证并清除 Cookie
+- `POST /auth/change-password` `{current_password, new_password}`，成功后所有设备重新登录
 - `GET /onboarding/status?user_id=`
 - `POST /onboarding/complete` 保存档案、首次测评基线及初始模板处方
 - `GET /users/me`

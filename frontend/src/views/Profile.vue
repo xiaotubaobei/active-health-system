@@ -25,10 +25,12 @@
     <p v-if="msg" class="ok">{{ msg }}</p>
     <p v-if="err" class="err">{{ err }}</p>
   </div>
+  <AccountSecurity />
 </template>
 
 <script setup>
 import { reactive, ref } from "vue";
+import AccountSecurity from "../components/AccountSecurity.vue";
 import api, { errorMessage, getUser, setUser } from "../api/client";
 
 const user = getUser();

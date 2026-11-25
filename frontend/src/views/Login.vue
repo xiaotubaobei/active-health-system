@@ -4,6 +4,7 @@
     <p class="muted">请使用个人账号登录；首次使用可注册。demo / 123456 仅在后端开启本地演示模式时可用。</p>
     <p v-if="route.query.expired" class="muted">登录已失效，请重新登录。</p>
     <p v-if="route.query.unavailable" class="err">暂时无法连接系统，请稍后重试。</p>
+    <p v-if="route.query.password_changed" class="ok" role="status">密码已修改，请用新密码重新登录。其他设备也已退出。</p>
     <form @submit.prevent="submit">
       <div class="row" style="margin-top:12px">
         <label>用户名 <input v-model="username" autocomplete="username" minlength="2" maxlength="64" required /></label>

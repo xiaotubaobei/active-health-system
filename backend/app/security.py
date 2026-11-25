@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 from fastapi import Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
+from sqlalchemy import update
 
 from . import config
 from .database import get_db
@@ -52,6 +53,14 @@ def owned_user(user_id: int, actor: User = Depends(get_current_user)) -> User:
 
 
 def issue_session(db: Session, user: User, response: Response, request: Request) -> str:
+    # Serialize session creation against password changes. A previously verified hash
+    # must still be current when the session is inserted, including on SQLite.
+    verified_hash = user.password
+    locked = db.execute(update(User).where(User.id == user.id, User.password == verified_hash)
+                        .values(password=verified_hash).execution_options(synchronize_session=False)).rowcount
+    if not locked:
+        db.rollback()
+        raise HTTPException(401, "账号凭据已更新，请重新登录")
     # Signing in replaces the browser's previous session; other devices are unchanged.
     previous = request_token(request)
     if previous:

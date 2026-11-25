@@ -1,15 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models.entities import AuthSession, User
-from ..schemas.dto import LoginIn, RegisterIn, UserUpdate
+from ..schemas.dto import LoginIn, RegisterIn, PasswordChangeIn, UserUpdate
 from .. import config
 from ..passwords import hash_password, verify_password
+from ..auth_limits import reserve_attempt, clear_attempts
 from ..security import COOKIE_NAME, RESERVED_NAMES, get_current_user, issue_session, owned_user, require_owner, request_token, token_digest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 users_router = APIRouter(prefix="/users", tags=["users"])
+
+# Missing/disabled accounts still perform one password hash comparison.
+_DUMMY_PASSWORD = hash_password("unusable-dummy-password-for-timing")
 
 
 def _user_public(user: User) -> dict:
@@ -83,17 +88,47 @@ def register(body: RegisterIn, request: Request, response: Response, db: Session
 @router.post("/login")
 def login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
     name = body.username.strip()
+    keys = reserve_attempt(db, request, "login", name)
     if name in RESERVED_NAMES:
         if not config.ENABLE_DEMO_ACCOUNTS or name != "demo":
+            verify_password(body.password, _DUMMY_PASSWORD)
             raise HTTPException(401, "演示账号未启用，请注册或使用个人账号")
         _ensure_demo_users(db)
     user = db.query(User).filter(User.username == name).first()
-    if not user or not verify_password(body.password, user.password):
+    correct = verify_password(body.password, user.password if user else _DUMMY_PASSWORD)
+    if not user or not correct:
         raise HTTPException(401, "用户名或密码错误")
+    clear_attempts(db, keys)
     return {
         "token": issue_session(db, user, response, request),
         "user": _user_public(user),
     }
+
+
+@router.post("/change-password")
+def change_password(body: PasswordChangeIn, request: Request, response: Response,
+                    actor: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if actor.username in RESERVED_NAMES:
+        raise HTTPException(403, "演示账号不支持修改密码，请注册个人账号。")
+    keys = reserve_attempt(db, request, "password-change", str(actor.id))
+    old_hash = actor.password
+    if not verify_password(body.current_password, old_hash):
+        # A wrong current password is a form error, not an expired login.
+        raise HTTPException(400, "当前密码不正确，请重新输入。")
+    if body.current_password == body.new_password:
+        raise HTTPException(400, "新密码不能与当前密码相同。")
+    new_hash = hash_password(body.new_password)
+    changed = db.execute(update(User).where(User.id == actor.id, User.password == old_hash)
+                         .values(password=new_hash).execution_options(synchronize_session=False)).rowcount
+    if not changed:
+        db.rollback()
+        raise HTTPException(409, "密码已在其他页面修改，请重新登录后再试。")
+    db.query(AuthSession).filter_by(user_id=actor.id).delete(synchronize_session=False)
+    clear_attempts(db, keys)
+    db.commit()
+    response.delete_cookie(COOKIE_NAME, path="/", secure=config.COOKIE_SECURE, httponly=True, samesite="lax")
+    response.headers["Cache-Control"] = "no-store"
+    return {"ok": True, "reauthenticate": True}
 
 
 @router.post("/logout")
