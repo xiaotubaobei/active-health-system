@@ -3,7 +3,7 @@
     <h2>运动后报告</h2>
     <div class="row">
       <label>训练编号 <input v-model="sessionId" type="number" min="1" placeholder="如 1" /></label>
-      <button @click="load" :disabled="busy">{{ busy ? "正在加载…" : "加载报告" }}</button>
+      <button @click="reloadReport" :disabled="busy">{{ busy ? "正在加载…" : "加载报告" }}</button>
       <router-link to="/history"><button class="secondary">训练历史</button></router-link>
       <router-link to="/prescription"><button class="secondary">查看当前处方</button></router-link>
     </div>
@@ -28,6 +28,7 @@
         <p v-for="(interval, i) in motion.rep_intervals || []" :key="i">第 {{ i + 1 }} 次：{{ interval.start_sec }}–{{ interval.end_sec }} 秒</p>
       </template>
       <p v-else class="muted">{{ motion.error || motion.message || "本次尚无动作计数结果；不使用演示次数补齐。" }}</p>
+      <SessionFeedback ref="feedbackPanel" :key="data.session.id" :session-id="data.session.id" />
       <details style="margin-top:16px">
         <summary>查看原始服务结果（可能含演示数据）</summary>
         <pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ JSON.stringify(data.report, null, 2) }}</pre>
@@ -38,14 +39,25 @@
 
 <script setup>
 import { computed, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import api, { errorMessage } from "../api/client";
+import SessionFeedback from "../components/SessionFeedback.vue";
 
 const route = useRoute();
+const router = useRouter();
 const sessionId = ref("");
 const data = ref(null);
 const err = ref("");
 const busy = ref(false);
+const feedbackPanel = ref(null);
+function reloadReport() {
+  const id = Number(sessionId.value);
+  if (Number.isInteger(id) && id > 0 && String(route.query.session_id) !== String(id)) {
+    router.push({ path: route.path, query: { ...route.query, session_id: String(id) } });
+    return;
+  }
+  if (!feedbackPanel.value || feedbackPanel.value.confirmLeave()) load();
+}
 let requestId = 0;
 const cot = computed(() => data.value?.report?.cot || {});
 const analysis = computed(() => data.value?.analysis || { status: "unavailable", score: null, message: "暂无有效模型评估" });

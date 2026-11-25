@@ -1,5 +1,13 @@
 # 核心 API（框架版）
 
+## 本人训练反馈
+
+`GET /sessions/{id}/feedback` 返回 `{feedback: null}` 或已保存的反馈。只允许当前登录用户访问本人已结束的训练；其他用户或不存在的训练返回404，未结束或已取消返回409。
+
+`PUT /sessions/{id}/feedback` 全量保存本人填写的感受，必传非负整数 `expected_revision`（首次为0）和布尔值 `performed`。本人实际训练时，必须同时填写 `completion`（`completed|partial|stopped`）、`effort`（`easy|moderate|hard`）和布尔值 `discomfort`；仅体验样本时三项必须省略或为null。`note` 选填，最多1000字，保存时去除首尾空白。接口不接收目标用户编号，Cookie 写请求沿用登录接口的来源校验。
+
+成功返回 `{feedback}`，含训练/用户编号、上述回答、`revision`、UTC 创建与修改时间。相同版本和内容的重复保存不增加版本；响应丢失后重试上一版本的相同内容也返回原结果。其他过期修改返回409，客户端保留本页内容，提示重新读取核对，不能自动覆盖。每条训练最多一份当前反馈，允许本人之后修改，不提供修改历史。反馈独立于模型评分、计数、知识库和处方，不自动参与统计或调整计划。启动迁移自动为已有安装创建 `session_feedback` 表。
+
 ## 训练草稿与恢复
 
 `GET /sessions/{id}?user_id=本人ID` 返回训练和当前 `draft_revision`。

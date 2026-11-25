@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Any, Literal
 
 
@@ -81,6 +81,25 @@ class SessionFinishIn(BaseModel):
     expected_revision: int | None = Field(default=None, ge=0)
     video_path: str = ""
     pose_summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionFeedbackIn(BaseModel):
+    expected_revision: int = Field(ge=0, strict=True)
+    performed: bool = Field(strict=True)
+    completion: Literal["completed", "partial", "stopped"] | None = None
+    effort: Literal["easy", "moderate", "hard"] | None = None
+    discomfort: bool | None = Field(default=None, strict=True)
+    note: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_participation(self):
+        answers = (self.completion, self.effort, self.discomfort)
+        if self.performed and any(answer is None for answer in answers):
+            raise ValueError("实际训练请填写完成情况、费力程度和不适情况")
+        if not self.performed and any(answer is not None for answer in answers):
+            raise ValueError("仅体验样本时不记录本人的训练完成情况或感受")
+        self.note = self.note.strip()
+        return self
 
 
 class VideoPoseInferIn(BaseModel):

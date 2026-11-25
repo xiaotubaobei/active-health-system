@@ -124,6 +124,21 @@ class ExerciseSession(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class SessionFeedback(Base):
+    """本人填写的训练感受，与模型结果独立保存。"""
+    __tablename__ = "session_feedback"
+    session_id: Mapped[int] = mapped_column(ForeignKey("exercise_sessions.id"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    performed: Mapped[bool] = mapped_column(Boolean)
+    completion: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    effort: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    discomfort: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class BehaviorReport(Base):
     __tablename__ = "behavior_reports"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

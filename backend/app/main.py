@@ -6,7 +6,7 @@ from .config import VERSION, ALLOWED_ORIGINS
 from .security import get_current_user
 from .models import entities  # noqa: F401
 from .migrate import migrate_schema
-from .routers import auth, fitness, body, prescriptions, sessions, reports, devices, demo, demo_videos, pose_infer, onboarding, kb
+from .routers import auth, fitness, body, prescriptions, sessions, session_feedback, reports, devices, demo, demo_videos, pose_infer, onboarding, kb
 
 
 @asynccontextmanager
@@ -41,6 +41,7 @@ app.include_router(fitness.router)
 app.include_router(body.router)
 app.include_router(prescriptions.router)
 app.include_router(sessions.router)
+app.include_router(session_feedback.router)
 app.include_router(reports.router)
 app.include_router(devices.router)
 app.include_router(demo.router)
