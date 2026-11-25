@@ -18,7 +18,7 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 async def start(body: SessionStartIn, actor: User = Depends(get_current_user), db: Session = Depends(get_db)):
     user = require_owner(body.user_id, actor)
     if not user.onboarding_done:
-        raise HTTPException(409, "请先完成首次测评")
+        raise HTTPException(409, "请先填写基本档案")
     # A retry returns the original input and status, never updates or recreates it.
     def previous_start():
         if not body.start_key:

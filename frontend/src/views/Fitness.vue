@@ -4,7 +4,7 @@
     <p class="muted">此处录入已有体测的 0–100 换算分，再按项目权重汇总。当前尚未提供原始成绩换算标准；没有已换算成绩时请勿估填，也不要填写次数、秒数或体重。</p>
     <div class="row">
       <select v-model="scaleId" :disabled="busy">
-        <option v-for="s in scales" :key="s.id" :value="s.id">{{ s.name }}</option>
+        <option v-for="s in applicableScales" :key="s.id" :value="s.id">{{ s.name }}</option>
       </select>
       <button @click="submit" :disabled="busy || !current">提交分数</button>
     </div>
@@ -45,6 +45,7 @@ const formErr = ref("");
 const busy = ref(false);
 
 const current = computed(() => scales.value.find((s) => s.id === scaleId.value));
+const applicableScales = computed(() => scales.value.filter((s) => s.id === (user.age_group === 'youth' ? 'youth' : 'middle_elder')));
 
 watch(current, (s) => {
   result.value = null;

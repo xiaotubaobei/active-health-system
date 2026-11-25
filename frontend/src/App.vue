@@ -10,7 +10,7 @@
       <nav id="main-nav" :class="{ open: menuOpen }" aria-label="主导航" @click="menuOpen = false">
       <router-link to="/">总览</router-link>
       <router-link to="/profile">用户档案</router-link>
-      <router-link to="/onboarding">首次测评</router-link>
+      <router-link to="/onboarding">建档与基线</router-link>
       <router-link to="/fitness">体适能评估</router-link>
       <router-link to="/body">体型解析</router-link>
       <router-link to="/prescription">运动处方</router-link>

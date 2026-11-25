@@ -7,7 +7,7 @@ from ..database import get_db
 from ..security import get_current_user, require_owner
 from ..models.entities import User, Prescription, ExerciseSession
 from ..schemas.dto import SessionFinishIn
-from ..services.prescription import pick_template
+from ..services.prescription import NoMatchingTemplate, pick_template
 from ..services.prescription_review import lock_owner
 from ..services.session_completion import complete_session
 
@@ -25,10 +25,13 @@ async def run_loop(body: DemoLoopIn, actor: User = Depends(get_current_user), db
     user = require_owner(body.user_id, actor)
     lock_owner(db, user.id)
     if not user.onboarding_done:
-        raise HTTPException(409, "请先完成首次测评")
+        raise HTTPException(409, "请先填写基本档案")
     presc = db.query(Prescription).filter_by(user_id=user.id).order_by(Prescription.version.desc()).first()
     if not presc:
-        _, payload = pick_template(user.age_group, user.goal, user.chronic_tags or [])
+        try:
+            _, payload = pick_template(user.age_group, user.goal, user.chronic_tags or [])
+        except NoMatchingTemplate as error:
+            raise HTTPException(422, str(error)) from error
         presc = Prescription(user_id=user.id, version=1, status="pre_prescription",
                              notes="演示使用的初始模板处方，非模型评估生成", **payload)
         db.add(presc)

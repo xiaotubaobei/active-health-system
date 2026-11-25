@@ -12,6 +12,10 @@ STATUS_FLOW = [
 ]
 
 
+class NoMatchingTemplate(ValueError):
+    """目录未覆盖当前资料；不能用其他人群的模板代替。"""
+
+
 def next_status(current: str) -> str:
     if current not in STATUS_FLOW:
         return STATUS_FLOW[0]
@@ -25,14 +29,18 @@ def pick_template(age_group: str, goal: str, chronic_tags: list | None = None) -
     library = "medical" if goal == "medical" or chronic_tags else "fitness"
     lib = libs[library]
     templates = lib["templates"]
-    # prefer age match
     candidates = [t for t in templates if t.get("age_group") == age_group]
     if not candidates:
-        candidates = templates
-    if library == "medical" and chronic_tags:
-        tagged = [t for t in candidates if set(t.get("chronic_tags", [])) & set(chronic_tags)]
-        if tagged:
-            candidates = tagged
+        raise NoMatchingTemplate("现有模板没有覆盖你所选的年龄组，请联系项目专业人员评估。")
+    if library == "medical":
+        if not chronic_tags:
+            raise NoMatchingTemplate("健康管理目标尚无已确认的适用情况，暂不生成模板。请联系项目专业人员评估，不要为了匹配模板猜填健康标签。")
+        # 当前目录只有标签，没有合并病种的适配规则；单个标签重合不代表覆盖全部情况。
+        candidates = [t for t in candidates if set(t.get("chronic_tags", [])) == set(chronic_tags)]
+    else:
+        candidates = [t for t in candidates if t.get("goal") == goal]
+    if len(candidates) != 1:
+        raise NoMatchingTemplate("现有模板无法唯一、完整地匹配你填写的目标和健康标签，暂不生成方案。请联系项目专业人员评估；标签匹配也不代表已经确认适合训练。")
     tpl = candidates[0]
     exercises = resolve_exercises(lib, tpl.get("exercise_ids", []))
     payload = {
@@ -54,6 +62,15 @@ def pick_template(age_group: str, goal: str, chronic_tags: list | None = None) -
         },
     }
     return library, payload
+
+
+def template_availability(age_group: str, goal: str, chronic_tags: list | None = None) -> dict:
+    try:
+        library, payload = pick_template(age_group, goal, chronic_tags)
+    except NoMatchingTemplate as error:
+        return {"matched": False, "reason": str(error), "library": None, "template_id": None}
+    return {"matched": True, "library": library, "template_id": payload["template_id"],
+            "reason": "目录中有年龄组及标签匹配的模板，仅供查看和送审，尚未按个人测评或活动限制制定运动量。"}
 
 
 def adjust_by_report(exercises: list[dict], score: float, errors: list[str]) -> tuple[list[dict], str]:

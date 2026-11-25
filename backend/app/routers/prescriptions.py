@@ -6,7 +6,7 @@ from ..security import get_current_user, owned_user, require_owner
 from ..models.entities import FitnessAssessment, Prescription, PrescriptionReview, User
 from ..schemas.dto import PrescriptionGenerateIn, PrescriptionReviewIn, PrescriptionDecisionIn
 from ..services.catalog import load_prescription_libs
-from ..services.prescription import pick_template, STATUS_FLOW
+from ..services.prescription import NoMatchingTemplate, pick_template, template_availability, STATUS_FLOW
 from ..services.prescription_review import (
     REVIEW_ROLES, VISIBLE_REVIEW_STATUSES, can_review, lock_owner, snapshot, supersede_pending,
 )
@@ -28,6 +28,12 @@ def status_flow():
 def generate(body: PrescriptionGenerateIn, actor: User = Depends(get_current_user), db: Session = Depends(get_db)):
     user = require_owner(body.user_id, actor)
     lock_owner(db, user.id)
+    if not user.onboarding_done:
+        raise HTTPException(409, "请先填写基本档案，不能使用注册占位资料生成方案")
+    try:
+        _, payload = pick_template(user.age_group, user.goal, user.chronic_tags or [])
+    except NoMatchingTemplate as error:
+        raise HTTPException(422, str(error)) from error
     supersede_pending(db, user.id)
     last = (
         db.query(Prescription)
@@ -36,18 +42,25 @@ def generate(body: PrescriptionGenerateIn, actor: User = Depends(get_current_use
         .first()
     )
     version = (last.version + 1) if last else 1
-    library, payload = pick_template(user.age_group, user.goal, user.chronic_tags or [])
     row = Prescription(
         user_id=user.id,
         version=version,
         status="pre_prescription",
         **payload,
-        notes="由规则引擎自动生成（框架版）",
+        notes="按已填写年龄组、目标及标签匹配的模板草案，未按测评分数制定运动量，需结合活动限制等资料人工核对。",
     )
     db.add(row)
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.get("/availability")
+def availability(user_id: int, user: User = Depends(owned_user)):
+    if not user.onboarding_done:
+        return {"matched": False, "reason": "请先填写基本档案，注册占位资料不能用于匹配方案。",
+                "library": None, "template_id": None}
+    return template_availability(user.age_group, user.goal, user.chronic_tags or [])
 
 
 @router.get("/current")

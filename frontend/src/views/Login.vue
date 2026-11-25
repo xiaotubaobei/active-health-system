@@ -12,7 +12,7 @@
       </div>
       <p v-if="registering"><label><input v-model="consent" type="checkbox" required /> 我同意将资料与训练记录用于本系统个人档案，并知悉运动健康建议不构成医疗诊断或治疗。</label></p>
       <div class="row" style="margin-top:12px">
-        <button type="submit" :disabled="busy">{{ busy ? "正在处理…" : registering ? "注册并开始首次测评" : "进入系统" }}</button>
+        <button type="submit" :disabled="busy">{{ busy ? "正在处理…" : registering ? "注册并建立档案" : "进入系统" }}</button>
         <button class="secondary" type="button" :disabled="busy" @click="toggle">{{ registering ? "已有账号，去登录" : "注册新账号" }}</button>
       </div>
     </form>

@@ -3,11 +3,12 @@
     <h2>运动处方</h2>
     <p class="muted">系统当前按年龄组和标签选择模板，尚未根据个人测评、运动限制和训练反馈制定运动量。模板中的强度、频次与进阶安排需要结合本人情况核对。</p>
     <div class="row">
-      <button :disabled="busy || !loaded" @click="generate">生成/更新处方</button>
+      <button :disabled="busy || !loaded || !availability?.matched" @click="generate">生成/更新模板草案</button>
       <button class="secondary" :disabled="busy" @click="load">刷新</button>
     </div>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="success" role="status">{{ success }}</p>
+    <p v-if="availability" :role="availability.matched ? undefined : 'status'" class="muted">{{ availability.reason }} <router-link v-if="!availability.matched" to="/profile">核对基本资料</router-link></p>
     <p v-if="pending" class="muted">当前处方正在审核。生成新版会使这次待审申请失效，需要重新提交。</p>
     <div class="steps">
       <span v-for="s in flow" :key="s" :class="{ on: current?.status === s }">{{ label(s) }}</span>
@@ -43,7 +44,7 @@
       <p class="muted">上述字段尚未接入专项评估；旧版计划中的“均衡饮食”“保证7小时”等文字来自模板，不是依据个人情况得出的建议。“未评估”不表示没有相关问题。</p>
       <p class="muted">{{ current.notes }}</p>
     </div>
-    <p v-else-if="loaded" class="muted">尚未生成处方，可点上方按钮，或回总览使用一键演示。</p>
+    <p v-else-if="loaded" class="muted">尚无方案。{{ availability?.matched ? '可以生成模板草案查看，再交由专业人员核对。' : '基本档案和体测记录可以继续保留；暂无匹配模板时，需要项目专业人员进一步评估。' }}</p>
     <p v-else class="muted">{{ busy ? '正在加载处方…' : '处方未加载，请刷新重试。' }}</p>
   </div>
   <div class="card" v-if="current && loaded">
@@ -120,6 +121,7 @@ const reviews = ref([]), reviewTotal = ref(0), offset = ref(0), pending = ref(nu
 const reviewerName = ref(''), requestNote = ref(''), consent = ref(false);
 const pageSize = 10;
 const templates = ref(null);
+const availability = ref(null);
 const allTemplates = computed(() => [
   ...(templates.value?.fitness?.templates || []),
   ...(templates.value?.medical?.templates || []),
@@ -130,12 +132,14 @@ function label(s) {
 }
 
 async function fetchState() {
-  const [prescription, history, latestReviews] = await Promise.all([
+  const [prescription, history, latestReviews, match] = await Promise.all([
     api.get(`/prescriptions/current?user_id=${user.id}`).catch(e => { if (e.response?.status === 404) return { data: null }; throw e; }),
     api.get('/prescriptions/reviews/mine', { params: { offset: offset.value, limit: pageSize } }),
     api.get('/prescriptions/reviews/mine', { params: { limit: 1 } }),
+    api.get('/prescriptions/availability', { params: { user_id: user.id } }),
   ]);
   current.value = prescription.data;
+  availability.value = match.data;
   reviews.value = history.data.items; reviewTotal.value = history.data.total;
   pending.value = latestReviews.data.items.find(r => r.prescription_id === current.value?.id && r.status === 'pending') || null;
   loaded.value = true;
@@ -157,7 +161,8 @@ async function mutate(action, message) {
   finally { busy.value = false; }
 }
 async function generate() {
-  await mutate(() => api.post('/prescriptions/generate', { user_id: user.id }), '已生成新版处方，请查看后重新送审。');
+  if (busy.value || !loaded.value || !availability.value?.matched) return;
+  await mutate(() => api.post('/prescriptions/generate', { user_id: user.id }), '已生成新版模板草案，请核对后送审。');
 }
 async function submitReview() {
   await mutate(async () => {

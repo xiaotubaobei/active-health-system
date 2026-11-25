@@ -46,7 +46,7 @@
 - `POST /auth/logout` 撤销当前登录凭证并清除 Cookie
 - `POST /auth/change-password` `{current_password, new_password}`，成功后所有设备重新登录
 - `GET /onboarding/status?user_id=`
-- `POST /onboarding/complete` 保存档案、首次测评基线及初始模板处方
+- `POST /onboarding/complete` 保存基本档案，可选一并录入完整体测和生成模板草案
 - `GET /users/me`
 - `PUT /users/me`
 - `GET /fitness/scales`
@@ -54,6 +54,7 @@
 - `POST /body/parse`
 - `GET /prescriptions/templates`
 - `POST /prescriptions/generate`
+- `GET /prescriptions/availability?user_id=` 只读查询当前档案是否有目录匹配模板及原因
 - `GET /prescriptions/current?user_id=`
 - `POST /prescriptions/{id}/advance` 已停用，需走人工审核；本人普通账号403，有角色的本人409，其他人404
 - `POST /prescriptions/{id}/reviews` 提交审核
@@ -82,17 +83,27 @@
 
 审核决定为 `{decision: "approved"|"rejected", note: "必填意见"}`，意见去除空白后必须非空且最多2000字。通过只将原版标记为正式处方，退回不改原版。记录包含申请编号、双方编号和账号名、角色、状态、处方快照、档案/最近测评快照、提交说明、决定意见及UTC时间。已处理记录不能覆盖；用户可撤回待审申请，退回后可创建独立新申请。新版生成在同一事务内将旧待审记录标记为 `superseded`。
 
-## 首次测评与分数校验
+## 基本建档与可选体测
 
-新账号在首次测评完成前不能开始训练。`/onboarding/complete` 接收 `user_id`、`age_group`（`youth|middle_age|elder`）、`height_cm`、`weight_kg`、`goal`（`fitness|medical`）、`chronic_tags`、`scale_id`、`scores`、`privacy_consent: true`，默认生成初始模板处方。
+新账号须先填写基本档案，再使用训练记录工具；不强制先完成体测，能记录训练不代表获得了运动适宜性确认。`/onboarding/complete` 接收 `user_id`、`age_group`（`youth|middle_age|elder`）、`height_cm`、`weight_kg`、`goal`（`fitness|medical`）、`chronic_tags`、`privacy_consent: true`。没有完整体测分数时不提供 `scale_id`、`scores`，接口仅建档，返回 `baseline: null`，不创建空评估或0分基线。
+
+`generate_prescription` 为兼容旧客户端仍默认 `true`；新页面明确传 `false`，保存后展示建档结果，由用户另到方案页查看匹配并主动生成。旧客户端请求生成但无匹配时，档案及有效体测仍保存成功，返回 `prescription: null` 与 `prescription_message` 原因；不会用其他模板凑方案。`onboarding_done` 表示基本建档完成，与 `has_baseline`、`has_prescription` 独立。建档成功不自动跳转到计划页，不把未录体测的用户写成“首次测评已完成”。
 
 `age_group`、`height_cm`、`weight_kg`、`goal` 必须明确提交，缺少任意一项返回422，不采用注册时的历史占位值。首次填写页面不预填年龄组、身高体重或目标。身高体重必须有限且大于0，上限分别为300厘米和700公斤；这些只是输入有效性边界，不是健康范围。旧库注册占位值及旧记录不在本次更新中猜测性改写。
 
-量表从 `/fitness/scales` 获取：青少年用 `youth`，其他年龄组用 `middle_elder`。`scores` 必须提供当前量表的全部项目，每项为 0–100 的换算分；缺项、额外项目、越界、未知量表均返回 422，不保存不完整评估。重复完成首次测评返回 409；后续测评使用 `/fitness/assess`。
+选择同时录体测时，量表从 `/fitness/scales` 获取：青少年用 `youth`，其他年龄组用 `middle_elder`。`scores` 必须提供当前量表的全部项目，每项为 0–100 的换算分；缺项、额外项目、越界、未知量表、年龄不匹配均返回422，整个建档请求不写入。只提交量表、只提交分数，或没有体测却提交非空 `pose_baseline` 也拒绝，不静默丢弃数据。
 
-现有项目和权重来自申请书骨架，尚无经核验的原始成绩换算标准。接口中的 `level` 仍保留旧版实验分档以兼容已有数据，不是已验证的健康等级；页面不再据此显示“达标”或建议进阶。`created_at` 是录入时间，尚无实际测量时间或测量来源字段。没有换算成绩的人目前仍无法完成首次测评，这是后续需要调整的入门流程缺口，不能以估填分数绕过。
+重复建档返回409；补录及后续测评使用 `/fitness/assess`，同样校验档案年龄组，未基本建档不能录入。第一次有效录入创建首次基线，后续录入创建独立评估，保留原基线和当时的身高、体重等档案快照。记录基线与测评共用用户事务锁，防止并发录入创建重复首条基线。`GET /onboarding/status` 可区分仅建档、已有体测、已有方案。
+
+现有项目和权重来自申请书骨架，尚无经核验的原始成绩换算标准。接口中的 `level` 仍保留旧版实验分档以兼容已有数据，不是已验证的健康等级；页面不再据此显示“达标”或建议进阶。`created_at` 是录入时间，尚无实际测量时间或测量来源字段。没有换算成绩时先建档即可，不能以估填分数代替真实测评。
 
 模板选择仍只使用年龄组、目标和标签，不使用测评分数、身高体重或训练反馈。新生成的 `health_plan` 四项均为空，表示未评估；前端不能将空值解释成“没有问题”。旧版模板里的饮食、睡眠文本保留原记录，页面提示其模板来源。详细字段审查及后续改造要求见 [progress_20261125.md](progress_20261125.md#补充审查字段和建议是否对应真实用户)。
+
+### 模板覆盖不足的处理
+
+`/prescriptions/availability` 返回 `{matched, reason, library, template_id}`，只判断目录是否唯一匹配，不写记录，也不表示医学适用性。未建档时 `matched: false`，生成接口返回409，避免使用注册占位值。年龄必须一致；健身库同时要求目标一致；有健康标签或目标为健康管理时进入医疗模板库，必须提供非空标签集合，并与模板标签集合完全一致。当前没有多病种合并规则，仅一个标签重合不够，不对未知中文/英文标签自动推断或替换。
+
+没有唯一匹配时 `POST /prescriptions/generate` 返回422，保留已有版本和待审记录，不递增版本或使旧申请失效；演示入口创建初始模板时也返回明确错误，不绕过匹配。页面展示原因，禁用生成，提供核对资料的入口；没有模板时专业人员从零建方案的功能仍待补充，不应伪装为已能送审。匹配成功的仍是模板草案，其强度、频次及进阶未经个人情况适配。仅在成功保存新版时按既有规则使旧待审申请失效。
 
 ## 训练恢复、取消与历史筛选
 

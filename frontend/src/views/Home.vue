@@ -8,7 +8,7 @@
     </p>
     <div class="steps">
       <span>1 档案/体适能</span>
-      <span>2 个性化处方</span>
+      <span>2 模板草案与人工审核</span>
       <span>3 体型/手环</span>
       <span>4 离线/摄像头+姿态</span>
       <span>5 报告归档与历史记录</span>

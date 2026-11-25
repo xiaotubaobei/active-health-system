@@ -159,6 +159,22 @@ def test_new_version_supersedes_pending_and_snapshot_is_fixed(client, store, onb
     assert submit(client, new.json()['id'], patient).status_code == 200
 
 
+def test_unmatched_generation_keeps_existing_version_and_pending_review(client, store, onboard):
+    owner, pid, patient, _, _ = setup_review(client, store, onboard)
+    original = submit(client, pid, patient).json()
+    response = client.put('/users/me', headers=patient, json={'goal': 'medical', 'chronic_tags': ['unknown-condition']})
+    assert response.status_code == 200
+    response = client.post('/prescriptions/generate', headers=patient, json={'user_id': owner['user']['id']})
+    assert response.status_code == 422
+    record = client.get('/prescriptions/reviews/mine', headers=patient).json()['items'][0]
+    assert record == original
+    current = client.get('/prescriptions/current', headers=patient, params={'user_id': owner['user']['id']}).json()
+    assert current['id'] == pid and current['version'] == 1
+    with store[1]() as db:
+        assert db.query(Prescription).count() == 1
+        assert db.query(PrescriptionReview).one().pending_prescription_id == pid
+
+
 def test_changed_prescription_cannot_be_approved(client, store, onboard):
     _, pid, patient, doctor, _ = setup_review(client, store, onboard)
     rid = submit(client, pid, patient).json()['id']
