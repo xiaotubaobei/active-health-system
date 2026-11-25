@@ -13,8 +13,8 @@
     <p>年龄组：{{ ageLabels[profile.age_group] || profile.age_group }}；身高 {{ profile.height_cm }} cm；体重 {{ profile.weight_kg }} kg</p>
     <p>目标：{{ profile.goal === 'medical' ? '医疗健康' : '健身' }}；慢病标签：{{ profile.chronic_tags?.join('、') || '未填写' }}</p>
     <template v-if="profile.assessment">
-      <p>最近测评：{{ profile.assessment.scale_id }}；总分 {{ profile.assessment.total_score }}；等级 {{ profile.assessment.level }}</p>
-      <p>测评时间：{{ formatTime(profile.assessment.created_at) }}</p>
+      <p>最近录入项目组：{{ profile.assessment.scale_id }}；分数汇总 {{ profile.assessment.total_score }}（试验性汇总，评分标准及分档阈值尚未核验）</p>
+      <p>系统录入时间：{{ formatTime(profile.assessment.created_at) }}，不代表实际测量时间</p>
       <ul><li v-for="(score, key) in profile.assessment.scores" :key="key">{{ key }}：{{ score }}</li></ul>
     </template>
     <p v-else class="muted">尚无测评记录，请审核人按实际情况决定是否退回补充。</p>

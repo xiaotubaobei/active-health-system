@@ -1,12 +1,12 @@
 <template>
   <div class="card">
     <h2>体适能评估</h2>
-    <p class="muted">请按体测结果填写 0–100 分（不再使用默认分）。提交后按申请书量表权重计算总分。</p>
+    <p class="muted">此处录入已有体测的 0–100 换算分，再按项目权重汇总。当前尚未提供原始成绩换算标准；没有已换算成绩时请勿估填，也不要填写次数、秒数或体重。</p>
     <div class="row">
-      <select v-model="scaleId">
+      <select v-model="scaleId" :disabled="busy">
         <option v-for="s in scales" :key="s.id" :value="s.id">{{ s.name }}</option>
       </select>
-      <button @click="submit" :disabled="busy">提交评估</button>
+      <button @click="submit" :disabled="busy || !current">提交分数</button>
     </div>
     <div v-if="current" style="margin-top:12px">
       <div v-for="item in current.items" :key="item.key" class="row" style="margin:8px 0">
@@ -16,6 +16,8 @@
           v-model.number="scores[item.key]"
           min="0"
           max="100"
+          step="0.1"
+          :disabled="busy"
           :placeholder="'0-100，权重 ' + item.weight"
         />
         <span class="muted">权重 {{ item.weight }}</span>
@@ -23,11 +25,10 @@
     </div>
     <p v-if="formErr" class="err">{{ formErr }}</p>
     <div v-if="result" class="row" style="margin-top:16px">
-      <div class="stat"><span>总分</span><b>{{ result.total_score }}</b></div>
-      <div class="stat"><span>等级</span><b>{{ levelText(result.level) }}</b></div>
-      <div class="stat"><span>量表</span><b style="font-size:14px">{{ result.scale_id }}</b></div>
+      <div class="stat"><span>录入分数汇总（试验）</span><b>{{ result.total_score }}</b></div>
+      <div class="stat"><span>项目组</span><b style="font-size:14px">{{ scales.find(s => s.id === result.scale_id)?.name || '未识别项目组' }}</b></div>
     </div>
-    <p v-if="result" class="ok">{{ advice }}</p>
+    <p v-if="result" class="muted">已保存本次录入。这是分数的加权汇总，评分标准与分档阈值尚未核验，不能据此判断是否达标、诊断身体问题或增加运动量。当前模板计划不会根据本次分数自动调整。</p>
   </div>
 </template>
 
@@ -44,16 +45,9 @@ const formErr = ref("");
 const busy = ref(false);
 
 const current = computed(() => scales.value.find((s) => s.id === scaleId.value));
-const advice = computed(() => {
-  const lv = result.value?.level;
-  if (lv === "excellent") return "体适能较好，可按处方保持并逐步进阶。";
-  if (lv === "good") return "整体达标，建议按处方完成，关注柔韧与平衡短板。";
-  if (lv === "average") return "中等水平，建议结合实际情况向专业人员咨询运动强度。";
-  if (lv === "poor") return "基础较弱，建议医疗/医师审核后再加大运动量。";
-  return "";
-});
 
 watch(current, (s) => {
+  result.value = null;
   if (!s) return;
   for (const key of Object.keys(scores)) delete scores[key];
 });
@@ -66,11 +60,8 @@ onMounted(async () => {
   } catch (error) { formErr.value = errorMessage(error, "量表加载失败，请刷新页面重试。"); }
 });
 
-function levelText(lv) {
-  return { excellent: "优秀", good: "良好", average: "一般", poor: "较弱" }[lv] || lv;
-}
-
 async function submit() {
+  if (busy.value || !current.value) return;
   formErr.value = "";
   const items = current.value?.items || [];
   const payload = {};

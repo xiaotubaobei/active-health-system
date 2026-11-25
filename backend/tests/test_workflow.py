@@ -41,6 +41,7 @@ def test_invalid_scores_never_create_records(client, store, invalid):
     user = client.post("/auth/register", json={"username": "invalid-user", "password": "test-password", "privacy_consent": True}).json()["user"]
     scale = next(s for s in client.get("/fitness/scales").json() if s["id"] == "middle_elder")
     body = {"user_id": user["id"], "scale_id": scale["id"], "privacy_consent": True,
+            "age_group": "middle_age", "height_cm": 170, "weight_kg": 65, "goal": "fitness",
             "scores": {item["key"]: 70 for item in scale["items"]}}
     if invalid == "missing":
         body["scores"].pop("bmi")

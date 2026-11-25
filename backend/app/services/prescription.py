@@ -49,8 +49,8 @@ def pick_template(age_group: str, goal: str, chronic_tags: list | None = None) -
         "health_plan": {
             "medication": "",
             "psychology": "",
-            "diet": "均衡饮食",
-            "sleep": "保证7小时",
+            "diet": "",
+            "sleep": "",
         },
     }
     return library, payload

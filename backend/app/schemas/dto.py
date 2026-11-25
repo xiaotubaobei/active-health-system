@@ -36,11 +36,11 @@ class FitnessAssessIn(BaseModel):
 
 class OnboardingCompleteIn(BaseModel):
     user_id: int
-    age_group: Literal["youth", "middle_age", "elder"] = "middle_age"
-    height_cm: float = Field(default=170.0, gt=0, le=300, allow_inf_nan=False)
-    weight_kg: float = Field(default=65.0, gt=0, le=700, allow_inf_nan=False)
+    age_group: Literal["youth", "middle_age", "elder"]
+    height_cm: float = Field(gt=0, le=300, allow_inf_nan=False)
+    weight_kg: float = Field(gt=0, le=700, allow_inf_nan=False)
     chronic_tags: list[str] = Field(default_factory=list)
-    goal: Literal["fitness", "medical"] = "fitness"
+    goal: Literal["fitness", "medical"]
     scale_id: str = ""
     scores: dict[str, float] = Field(default_factory=dict)
     pose_baseline: dict[str, Any] = Field(default_factory=dict)

@@ -7,23 +7,23 @@
     <button v-if="!ready && !loading" @click="load">重新加载</button>
     <div v-if="done">
       <p class="ok">首次测评已完成。后续测评请进入「体适能评估」。</p>
-      <p v-if="baseline">首次基线：{{ baseline.total_score }} 分（{{ levelName(baseline.level) }}）</p>
+      <p v-if="baseline">首次录入分数汇总：{{ baseline.total_score }} 分（试验性加权汇总，不代表体适能达标）</p>
       <p v-else class="muted">此演示账号没有首次基线记录。</p>
       <router-link to="/fitness"><button>后续体适能评估</button></router-link>
       <router-link to="/prescription"><button class="secondary">查看运动处方</button></router-link>
     </div>
     <form v-else-if="ready" @submit.prevent="submit">
       <div class="row" style="margin:12px 0">
-        <label>年龄组 <select v-model="form.age_group"><option value="youth">青少年</option><option value="middle_age">中年</option><option value="elder">老年</option></select></label>
+        <label>年龄组 <select v-model="form.age_group" required><option value="" disabled>请选择</option><option value="youth">青少年</option><option value="middle_age">中年</option><option value="elder">老年</option></select></label>
         <label>身高（厘米）<input v-model.number="form.height_cm" type="number" step="0.1" min="1" max="300" required /></label>
         <label>体重（公斤）<input v-model.number="form.weight_kg" type="number" step="0.1" min="1" max="700" required /></label>
       </div>
       <div class="row" style="margin:12px 0">
-        <label>运动目标 <select v-model="form.goal"><option value="fitness">日常健身</option><option value="medical">健康管理（需专业人员审核）</option></select></label>
+        <label>运动目标 <select v-model="form.goal" required><option value="" disabled>请选择</option><option value="fitness">日常健身</option><option value="medical">健康管理（需专业人员审核）</option></select></label>
         <label>慢病标签（选填，用逗号分隔）<input v-model="tags" placeholder="如 hypertension, diabetes" /></label>
       </div>
       <h3>{{ current?.name }}</h3>
-      <p class="muted">请填写体测换算后的 0–100 分，不是体重、秒数或次数。没有测量的项目请先完成测量；系统不会自动补分。</p>
+      <p class="muted">身高、体重请填写本人实际测量值。下方仅供录入已有的 0–100 换算分，不是体重、秒数或次数。当前尚未提供原始成绩换算标准；没有已换算成绩时请勿估填。</p>
       <div v-for="item in current?.items || []" :key="item.key" class="row" style="margin:8px 0">
         <label :for="`score-${item.key}`" style="width:200px">{{ item.name }}（权重 {{ item.weight }}）</label>
         <input :id="`score-${item.key}`" v-model.number="scores[item.key]" type="number" min="0" max="100" step="0.1" required placeholder="0–100 分" />
@@ -41,7 +41,8 @@ import api, { errorMessage, getUser, setUser } from "../api/client";
 
 const router = useRouter();
 const user = getUser();
-const form = reactive({ age_group: user.age_group || "middle_age", height_cm: user.height_cm || 170, weight_kg: user.weight_kg || 65, goal: user.goal || "fitness" });
+// 注册时的历史占位值不是用户确认过的测量值，首次填写必须由本人输入。
+const form = reactive({ age_group: "", height_cm: "", weight_kg: "", goal: "" });
 const tags = ref((user.chronic_tags || []).join(", "));
 const consent = ref(false);
 const scores = reactive({});
@@ -52,9 +53,8 @@ const loading = ref(false);
 const ready = ref(false);
 const busy = ref(false);
 const err = ref("");
-const current = computed(() => scales.value.find((s) => s.id === (form.age_group === "youth" ? "youth" : "middle_elder")));
+const current = computed(() => form.age_group ? scales.value.find((s) => s.id === (form.age_group === "youth" ? "youth" : "middle_elder")) : null);
 watch(current, () => { for (const key of Object.keys(scores)) delete scores[key]; });
-const levelName = (level) => ({ excellent: "优秀", good: "良好", average: "一般", poor: "较弱" }[level] || level);
 
 async function load() {
   loading.value = true;
@@ -75,6 +75,7 @@ async function load() {
 }
 
 async function submit() {
+  if (busy.value) return;
   err.value = "";
   const payload = {};
   for (const item of current.value?.items || []) {

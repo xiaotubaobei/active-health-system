@@ -54,6 +54,7 @@ def onboard(client):
         scale_id = "youth" if age == "youth" else "middle_elder"
         scale = next(s for s in client.get("/fitness/scales").json() if s["id"] == scale_id)
         body = {"user_id": user["id"], "age_group": age, "scale_id": scale_id,
+                "height_cm": 170, "weight_kg": 65, "goal": "fitness",
                 "scores": {item["key"]: 70 for item in scale["items"]}, "privacy_consent": True}
         response = client.post("/onboarding/complete", json=body)
         assert response.status_code == 200, response.text

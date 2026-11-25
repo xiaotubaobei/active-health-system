@@ -105,7 +105,7 @@ def test_csrf_origin_and_cookie_header(client):
 
 
 def test_private_routes_reject_other_users_and_anonymous_requests(client, store, onboard):
-    owner, _ = onboard("record-owner")
+    owner, owner_body = onboard("record-owner")
     uid = owner["user"]["id"]
     presc = owner["prescription"]["id"]
     finished = client.post("/demo/run-loop", json={"user_id": uid}).json()
@@ -118,7 +118,7 @@ def test_private_routes_reject_other_users_and_anonymous_requests(client, store,
         ("PUT", f"/users/me?user_id={uid}", {"height_cm": 1}),
         ("GET", f"/users/{uid}/export", None),
         ("GET", f"/onboarding/status?user_id={uid}", None),
-        ("POST", "/onboarding/complete", {"user_id": uid}),
+        ("POST", "/onboarding/complete", owner_body),
         ("POST", "/fitness/assess", {"user_id": uid, "scale_id": "middle_elder"}),
         ("POST", "/body/parse", {"user_id": uid}),
         ("POST", "/prescriptions/generate", {"user_id": uid}),

@@ -1,6 +1,7 @@
 <template>
   <div class="card">
     <h2>运动处方</h2>
+    <p class="muted">系统当前按年龄组和标签选择模板，尚未根据个人测评、运动限制和训练反馈制定运动量。模板中的强度、频次与进阶安排需要结合本人情况核对。</p>
     <div class="row">
       <button :disabled="busy || !loaded" @click="generate">生成/更新处方</button>
       <button class="secondary" :disabled="busy" @click="load">刷新</button>
@@ -32,13 +33,14 @@
           <router-link :to="{ path: '/exercise', query: { prescription_id: current.id, exercise_id: e.id } }">练这个动作</router-link>
         </li>
       </ul>
-      <h3>综合健康计划（医师占位）</h3>
+      <h3>补充健康建议</h3>
       <p>
-        饮食 <span class="tag">{{ current.health_plan?.diet || "—" }}</span>
-        睡眠 <span class="tag">{{ current.health_plan?.sleep || "—" }}</span>
-        用药 <span class="tag gray">{{ current.health_plan?.medication || "无" }}</span>
-        心理 <span class="tag gray">{{ current.health_plan?.psychology || "无" }}</span>
+        饮食 <span class="tag">{{ current.health_plan?.diet || "未评估" }}</span>
+        睡眠 <span class="tag">{{ current.health_plan?.sleep || "未评估" }}</span>
+        用药 <span class="tag gray">{{ current.health_plan?.medication || "未评估" }}</span>
+        心理 <span class="tag gray">{{ current.health_plan?.psychology || "未评估" }}</span>
       </p>
+      <p class="muted">上述字段尚未接入专项评估；旧版计划中的“均衡饮食”“保证7小时”等文字来自模板，不是依据个人情况得出的建议。“未评估”不表示没有相关问题。</p>
       <p class="muted">{{ current.notes }}</p>
     </div>
     <p v-else-if="loaded" class="muted">尚未生成处方，可点上方按钮，或回总览使用一键演示。</p>
