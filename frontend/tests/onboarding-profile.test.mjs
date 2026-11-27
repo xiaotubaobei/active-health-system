@@ -126,3 +126,12 @@ test('failed profile save keeps values and does not claim completion', async () 
   assert.match(c.err.value, /保存失败/);
   assert.equal(c.message.value, '');
 });
+
+test('switching age groups keeps separate score drafts without copying scores across groups', async () => {
+  const c = page(); await c.load();
+  c.form.age_group = 'middle_age'; await nextTick(); c.scores.bmi = 63.5;
+  c.form.age_group = 'elder'; await nextTick();
+  assert.equal(c.scores.bmi, undefined); c.scores.bmi = 42;
+  c.form.age_group = 'middle_age'; await nextTick(); assert.equal(c.scores.bmi, 63.5);
+  c.form.age_group = 'elder'; await nextTick(); assert.equal(c.scores.bmi, 42);
+});

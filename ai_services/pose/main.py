@@ -1,4 +1,5 @@
 import sys
+import os
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -58,4 +59,8 @@ def estimator_info():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8101)
+    uvicorn.run(
+        app,
+        host=os.getenv("POSE_HOST", "127.0.0.1"),
+        port=int(os.getenv("POSE_PORT", "8101")),
+    )

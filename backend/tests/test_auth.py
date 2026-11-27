@@ -166,7 +166,6 @@ def test_media_uploads_are_unique_and_owned(client, store, onboard, tmp_path, mo
     monkeypatch.setattr(media_access, "ROOT", tmp_path)
     monkeypatch.setattr(media_access, "DATA_DIR", tmp_path / "data")
     monkeypatch.setattr(media_access, "UPLOAD_DIR", tmp_path / "uploads")
-    monkeypatch.setattr(pose_infer, "ROOT", tmp_path)
     monkeypatch.setattr(pose_infer, "UPLOAD_DIR", tmp_path / "uploads")
     monkeypatch.setattr(demo_videos, "DEMO_ROOT", tmp_path / "data" / "demo_videos")
 

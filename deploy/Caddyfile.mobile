@@ -1,0 +1,32 @@
+{$APP_DOMAIN} {
+	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		Permissions-Policy "camera=(self), microphone=()"
+		X-Frame-Options DENY
+	}
+	request_body {
+		max_size 105MB
+	}
+	redir /api /api/ 308
+	handle_path /api/* {
+		reverse_proxy {$API_UPSTREAM}
+	}
+	handle /uploads/* {
+		reverse_proxy {$API_UPSTREAM}
+	}
+	handle {
+		root * {$FRONTEND_ROOT}
+		@assets path /assets/* /models/* /wasm/* /icons/* /manifest.webmanifest /sw.js /offline.html
+		handle @assets {
+			header Cache-Control "no-cache"
+			file_server
+		}
+		handle {
+			try_files {path} /index.html
+			header Cache-Control "no-cache"
+			file_server
+		}
+	}
+}

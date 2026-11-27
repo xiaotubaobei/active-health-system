@@ -64,7 +64,13 @@ const ready = ref(false);
 const busy = ref(false);
 const err = ref("");
 const current = computed(() => form.age_group ? scales.value.find((s) => s.id === (form.age_group === "youth" ? "youth" : "middle_elder")) : null);
-watch(current, () => { for (const key of Object.keys(scores)) delete scores[key]; });
+// 暂存本页已输入的分数；不同年龄组各自保存，避免错用同名项目。
+const scoreDrafts = new Map();
+watch(() => form.age_group, (age, previous) => {
+  if (previous) scoreDrafts.set(previous, { ...scores });
+  for (const key of Object.keys(scores)) delete scores[key];
+  Object.assign(scores, scoreDrafts.get(age) || {});
+});
 
 async function load() {
   loading.value = true;

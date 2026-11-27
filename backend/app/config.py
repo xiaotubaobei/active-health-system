@@ -2,8 +2,8 @@ from pathlib import Path
 import os
 
 ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT / "data"
-UPLOAD_DIR = ROOT / "uploads"
+DATA_DIR = Path(os.getenv("DATA_DIR", str(ROOT / "data"))).expanduser().resolve()
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(ROOT / "uploads"))).expanduser().resolve()
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'active_health.db'}")

@@ -1,8 +1,10 @@
 import axios from "axios";
 import { loginDestination } from "../utils/authNavigation";
 
+const configuredBaseURL = String(import.meta.env.VITE_API_BASE_URL || "/api").trim();
+
 const api = axios.create({
-  baseURL: "/api",
+  baseURL: configuredBaseURL.replace(/\/+$/, "") || "/api",
   timeout: 30000,
   withCredentials: true,
   headers: { "X-Requested-With": "ActiveHealth" },

@@ -10,17 +10,18 @@ function deferred() {
   return { promise, resolve };
 }
 
-function camera({ permission, model = async () => null, play = async () => {}, stopOnFrame = false } = {}) {
+function camera({ permission, model = async () => null, play = async () => {}, stopOnFrame = false, facingMode = 'user', actualFacing } = {}) {
   let stops = 0, scheduled = 0, frames = 0;
   let interruptions = 0;
-  const draws = [], hints = [];
+  const draws = [], hints = [], transforms = [], constraints = [];
   const track = new EventTarget();
   track.stop = () => { stops++; };
-  const stream = { getTracks: () => [track] };
+  track.getSettings = () => ({ facingMode: actualFacing });
+  const stream = { getTracks: () => [track], getVideoTracks: () => [track] };
   const video = { play, currentTime: 1 };
-  const ctx = new Proxy({}, { get: () => () => {} });
+  const ctx = new Proxy({}, { get: (_, key) => (...args) => transforms.push([key, ...args]) });
   const context = vm.createContext({
-    navigator: { mediaDevices: { getUserMedia: permission || (async () => stream) } },
+    navigator: { mediaDevices: { getUserMedia: async opts => { constraints.push(opts); return permission ? permission(opts) : stream; } } },
     cameraSupportError: () => cameraSupportError({ navigator: { mediaDevices: { getUserMedia() {} } } }),
     getPoseLandmarker: model, drawSkeleton: (...args) => draws.push(args),
     requestAnimationFrame: () => ++scheduled, cancelAnimationFrame() {},
@@ -29,10 +30,10 @@ function camera({ permission, model = async () => null, play = async () => {}, s
   const source = readFileSync(new URL('../src/composables/usePoseCamera.js', import.meta.url), 'utf8')
     .replace(/import[^;]+;/g, '').replace('export function', 'function');
   vm.runInContext(source + '\nglobalThis.factory = createPoseCamera;', context);
-  const ctl = context.factory({ video, canvas: { getContext: () => ctx },
+  const ctl = context.factory({ video, canvas: { getContext: () => ctx }, facingMode,
     onInterrupted: () => { interruptions++; },
     onHint: text => hints.push(text), onFrame: () => { frames++; if (stopOnFrame) ctl.stop(); } });
-  return { ctl, stream, track, video, draws, hints,
+  return { ctl, stream, track, video, draws, hints, transforms, constraints,
     get interruptions() { return interruptions; },
     get stops() { return stops; }, get scheduled() { return scheduled; }, get frames() { return frames; } };
 }
@@ -106,6 +107,25 @@ test('skeleton uses the same single mirror transform as the video', async () => 
   assert.equal(c.frames, 1);
   assert.equal(c.draws.length, 1);
   assert.equal(c.draws[0][4], undefined);
+  assert.equal(c.transforms.filter(t => t[0] === 'scale').length, 1);
+  assert.deepEqual(c.transforms.find(t => t[0] === 'scale'), ['scale', -1, 1]);
+  c.ctl.stop();
+});
+
+test('rear camera requests environment and keeps video and skeleton unmirrored', async () => {
+  const landmarks = Array.from({ length: 33 }, () => ({ x: 0.1, y: 0.2 }));
+  const c = camera({ facingMode: 'environment', model: async () => ({ detectForVideo: () => ({ landmarks: [landmarks] }) }) });
+  await c.ctl.start();
+  assert.equal(c.constraints[0].video.facingMode.ideal, 'environment');
+  assert.equal(c.draws.length, 1);
+  assert.equal(c.transforms.filter(t => t[0] === 'scale').length, 0);
+  c.ctl.stop();
+});
+
+test('camera mirror follows actual device when browser falls back to a different camera', async () => {
+  const c = camera({ facingMode: 'user', actualFacing: 'environment' });
+  await c.ctl.start();
+  assert.equal(c.transforms.filter(t => t[0] === 'scale').length, 0);
   c.ctl.stop();
 });
 

@@ -59,12 +59,12 @@ test('login return paths reject external sites and redirect loops', () => {
 
 test('API interceptor lets guards handle 401, and retains intended page for expired requests', async () => {
   const source = readFileSync(new URL('../src/api/client.js', import.meta.url), 'utf8')
-    .replace(/^import .*;$/gm, '').replace(/export default api;/g, '').replace(/export /g, '');
+    .replace(/^import .*;$/gm, '').replaceAll('import.meta.env', 'viteEnv').replace(/export default api;/g, '').replace(/export /g, '');
   let interceptor, redirects = [];
   const cache = new Map([['ah_user', '{"id":1}'], ['ah_last_session', '42']]);
   vm.runInNewContext(source, {
     axios: { create: () => ({ interceptors: { response: { use: (ok, fail) => { interceptor = fail; } } } }) },
-    loginDestination, URLSearchParams,
+    loginDestination, URLSearchParams, viteEnv: {},
     localStorage: { getItem: key => cache.get(key), removeItem: key => cache.delete(key) },
     window: { location: { pathname: '/exercise', search: '?session_id=42', hash: '', replace: url => redirects.push(url) } },
   });
@@ -74,4 +74,18 @@ test('API interceptor lets guards handle 401, and retains intended page for expi
   await assert.rejects(interceptor({ response: { status: 401 }, config: { url: '/sessions/42' } }));
   assert.equal(cache.size, 0);
   assert.equal(redirects[0], '/login?next=%2Fexercise%3Fsession_id%3D42&expired=1');
+});
+
+test('API base follows the deployment environment and defaults to the same-origin proxy', () => {
+  const source = readFileSync(new URL('../src/api/client.js', import.meta.url), 'utf8')
+    .replace(/^import .*;$/gm, '').replaceAll('import.meta.env', 'viteEnv').replace(/export default api;/g, '').replace(/export /g, '');
+  for (const [value, expected] of [[undefined, '/api'], ['', '/api'], ['  /api/// ', '/api'], ['https://api.example.test/', 'https://api.example.test']]) {
+    let options;
+    vm.runInNewContext(source, {
+      viteEnv: { VITE_API_BASE_URL: value },
+      axios: { create: config => { options = config; return { interceptors: { response: { use() {} } } }; } },
+    });
+    assert.equal(options.baseURL, expected);
+    assert.equal(options.withCredentials, true);
+  }
 });

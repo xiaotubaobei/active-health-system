@@ -10,10 +10,11 @@ function angle(a, b, c) {
   return Math.round(Math.acos(Math.min(1, Math.max(-1, (ab.x * cb.x + ab.y * cb.y) / (n1 * n2)))) * 180 / Math.PI);
 }
 
-export function createPoseCamera({ video, canvas, onHint, onFrame, onReady, onInterrupted }) {
+export function createPoseCamera({ video, canvas, onHint, onFrame, onReady, onInterrupted, facingMode = "user" }) {
   let stream = null, raf = 0, generation = 0;
   let running = false, lastVideoTime = -1, landmarker = null;
   let detachTracks = [];
+  let mirrored = facingMode !== "environment";
 
   async function start() {
     stop();
@@ -21,7 +22,7 @@ export function createPoseCamera({ video, canvas, onHint, onFrame, onReady, onIn
     const supportError = cameraSupportError();
     if (supportError) throw new Error(supportError);
     const acquired = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+      video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
       audio: false,
     });
     if (attempt !== generation) {
@@ -29,6 +30,8 @@ export function createPoseCamera({ video, canvas, onHint, onFrame, onReady, onIn
       return false;
     }
     stream = acquired;
+    const actualFacing = acquired.getVideoTracks?.()[0]?.getSettings?.().facingMode;
+    mirrored = (actualFacing || facingMode) !== "environment";
     try {
       const interrupted = () => {
         if (attempt !== generation) return;
@@ -54,7 +57,7 @@ export function createPoseCamera({ video, canvas, onHint, onFrame, onReady, onIn
         if (attempt !== generation) return false;
         landmarker = model;
         onReady?.(true);
-        onHint?.("姿态模型就绪：请站入画面（镜像预览）");
+        onHint?.(`姿态模型就绪：请站入画面${mirrored ? "（镜像预览）" : ""}`);
       } catch (error) {
         if (attempt !== generation) return false;
         onHint?.("姿态模型加载失败，仅保留摄像头预览。请检查网络后关闭并重新打开摄像头。" + (error?.message || ""));
@@ -78,8 +81,7 @@ export function createPoseCamera({ video, canvas, onHint, onFrame, onReady, onIn
     ctx.save();
     try {
       ctx.clearRect(0, 0, w, h);
-      ctx.translate(w, 0);
-      ctx.scale(-1, 1);
+      if (mirrored) { ctx.translate(w, 0); ctx.scale(-1, 1); }
       ctx.drawImage(video, 0, 0, w, h);
       if (landmarker && video.currentTime !== lastVideoTime) {
         lastVideoTime = video.currentTime;

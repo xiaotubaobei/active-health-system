@@ -43,9 +43,10 @@ onBeforeUnmount(() => { state.dispose(); window.removeEventListener("beforeunloa
 </script>
 
 <style scoped>
+form { position: relative; }
 fieldset { display: grid; gap: 14px; border: 0; padding: 0; margin: 16px 0 0; min-width: 0; max-width: 440px; }
 legend { font-weight: 600; margin-bottom: 12px; }
 label { display: grid; gap: 6px; }
 input, button { min-height: 44px; max-width: 100%; box-sizing: border-box; }
-.username { position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; border: 0; clip-path: inset(50%); }
+.username { position: absolute; left: 0; top: 0; width: 1px; height: 1px; min-height: 0; padding: 0; border: 0; clip-path: inset(50%); }
 </style>

@@ -8,6 +8,7 @@ import { anglesFromCocoKeypoints, hintFromAngles } from "../utils/poseFormat";
  * @param {File} [opts.file] 无路径时上传
  * @param {number} [opts.sampleHz=6]
  * @param {string} [opts.exerciseId]
+ * @param {number} [opts.sessionId] Current user's running training session for uploads.
  * @param {(p: {phase:string, progress:number, message?:string}) => void} [opts.onProgress]
  */
 export async function processVideoServer({
@@ -15,13 +16,13 @@ export async function processVideoServer({
   file,
   sampleHz = 6,
   exerciseId,
+  sessionId,
   onProgress,
   signal,
 }) {
-  onProgress?.({ phase: "scan", progress: 0.05, message: "服务端 RTMPose 解析中（首次可能下载权重）…" });
-
   let data;
   if (videoPathRel) {
+    onProgress?.({ phase: "analysis", progress: 0.1, message: "正在分析视频动作…" });
     const { data: resp } = await api.post(
       "/pose/infer-video",
       { video_path: videoPathRel, sample_hz: sampleHz, exercise_id: exerciseId },
@@ -29,14 +30,32 @@ export async function processVideoServer({
     );
     data = resp;
   } else if (file) {
+    onProgress?.({ phase: "upload", progress: 0, message: "正在上传视频…" });
     const form = new FormData();
-    form.append("file", file);
+    const type = String(file.type || "").toLowerCase();
+    const fallbackSuffix = type.includes("quicktime") ? "mov" : type.includes("webm") ? "webm" : "mp4";
+    const uploadFile = String(file.name || "").trim()
+      ? file
+      : new File([file], `mobile-video-${Date.now()}.${fallbackSuffix}`, { type: file.type || "video/mp4" });
+    form.append("file", uploadFile);
     form.append("sample_hz", String(sampleHz));
     if (exerciseId) form.append("exercise_id", exerciseId);
+    if (sessionId) form.append("session_id", String(sessionId));
     const { data: resp } = await api.post("/pose/infer-video-upload", form, {
       timeout: 600000,
       signal,
-      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress: (event) => {
+        if (event.total && event.loaded < event.total) {
+          const ratio = Math.min(1, event.loaded / event.total);
+          onProgress?.({
+            phase: "upload",
+            progress: ratio * 0.3,
+            message: `正在上传视频 ${Math.round(ratio * 100)}%…`,
+          });
+        } else {
+          onProgress?.({ phase: "analysis", progress: 0.35, message: "上传完成，正在分析视频动作…" });
+        }
+      },
     });
     data = resp;
   } else {
@@ -45,7 +64,7 @@ export async function processVideoServer({
 
   const cocoFrames = data.coco17_frames || [];
   if (!cocoFrames.length) {
-    throw new Error("RTMPose 未检测到人体关键点");
+    throw new Error("视频中没有识别到完整人体，请调整拍摄角度后重试");
   }
 
   const meta = data.frame_meta || {};
@@ -55,7 +74,7 @@ export async function processVideoServer({
   onProgress?.({
     phase: "done",
     progress: 1,
-    message: `${hint} · RTMPose ${cocoFrames.length} 帧`,
+    message: `${hint} · 视频动作分析完成`,
   });
 
   return {

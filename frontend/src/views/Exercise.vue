@@ -55,6 +55,10 @@
 
     <div class="row" v-if="inputMode === 'video'">
 
+      <label>用手机拍摄视频
+        <input type="file" accept="video/*" capture="environment" :disabled="busy || !!session || !!pendingStartBody" @change="onVideoPicked" />
+      </label>
+
       <label class="tag gray">演示样本</label>
 
       <select v-model="demoPickId" :disabled="busy || !!session || !!pendingStartBody" @change="onDemoPicked">
@@ -105,6 +109,9 @@
     </div>
 
     <div class="row" v-else>
+
+      <button class="secondary" @click="switchCamera" :disabled="busy || cameraStarting || captureActive">{{ facingMode === 'user' ? '改用后置镜头' : '改用前置镜头' }}</button>
+      <span v-if="captureActive" class="muted">请先暂停训练再切换镜头。</span>
 
       <button v-if="!session" @click="startCam" :disabled="camOn || cameraStarting || busy || !!cameraSupportIssue">{{ cameraStarting ? '正在打开摄像头…' : '打开摄像头' }}</button>
 
@@ -472,6 +479,15 @@ watch(inputMode, () => {
 
 const camOn = ref(false);
 const cameraStarting = ref(false);
+const facingMode = ref('user');
+
+async function switchCamera() {
+  if (busy.value || cameraStarting.value || captureActive.value) return;
+  const reopen = camOn.value;
+  stopCam();
+  facingMode.value = facingMode.value === 'user' ? 'environment' : 'user';
+  if (reopen) await startCam();
+}
 
 const previewOn = ref(false);
 
@@ -1088,6 +1104,7 @@ async function startCam() {
     cameraBase = performance.now() - cameraOffset;
     lastCapture = 0;
     cameraCtl = createPoseCamera({
+      facingMode: facingMode.value,
 
       video: videoEl.value,
 

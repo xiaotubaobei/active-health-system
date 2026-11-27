@@ -16,6 +16,8 @@ def media_path(reference: str, user_id: int, *, must_exist: bool = False) -> Pat
         raise HTTPException(400, "媒体路径无效")
     if raw.startswith("demo_videos/"):
         path = DATA_DIR / raw
+    elif raw.startswith("uploads/"):
+        path = UPLOAD_DIR / raw.removeprefix("uploads/")
     else:
         path = ROOT / raw
     path = path.resolve()

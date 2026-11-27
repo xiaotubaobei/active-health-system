@@ -16,6 +16,7 @@ frontend/public/pose-assets.json
 .env
 .env.*
 !.env.example
+!.env.production.example
 *.pem
 *.key
 credentials.json
@@ -48,6 +49,7 @@ Thumbs.db
 desktop.ini
 
 # Build / logs
+runtime_logs/
 *.log
 *.egg-info/
 dist/

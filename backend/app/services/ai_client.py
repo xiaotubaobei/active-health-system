@@ -8,7 +8,10 @@ async def _post(service: str, path: str, payload: dict, fallback: dict) -> dict:
         return {**fallback, "mode": "local_fallback"}
     url = f"{base.rstrip('/')}{path}"
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        # AI services run on the local service network. System proxy settings
+        # must not intercept loopback traffic (otherwise localhost can return
+        # a proxy-generated 502 instead of reaching the service).
+        async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
             r = await client.post(url, json=payload)
             r.raise_for_status()
             data = r.json()
@@ -33,7 +36,7 @@ async def pose_infer_video(payload: dict) -> dict:
         return {"mode": "local_fallback", "error": "AI_POSE_URL 未配置"}
     url = f"{base.rstrip('/')}/infer/video"
     try:
-        async with httpx.AsyncClient(timeout=600.0) as client:
+        async with httpx.AsyncClient(timeout=600.0, trust_env=False) as client:
             r = await client.post(url, json=payload)
             r.raise_for_status()
             data = r.json()
@@ -48,7 +51,7 @@ async def pose_estimator_info() -> dict:
     if not base:
         return {"mode": "local_fallback"}
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
             r = await client.get(f"{base.rstrip('/')}/estimator")
             r.raise_for_status()
             return r.json()
