@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { computed, reactive, ref, watch, nextTick } from 'vue';
+import { validScale, maxScore, scoreError } from '../src/utils/assessmentScores.js';
 
 function page(name, exposed, overrides = {}) {
   const source = readFileSync(new URL(`../src/views/${name}.vue`, import.meta.url), 'utf8')
     .split('<script setup>')[1].split('</script>')[0].replace(/import .*;\r?\n/g, '');
-  const ctx = vm.createContext({ computed, reactive, ref, watch, nextTick, onMounted() {},
+  const ctx = vm.createContext({ computed, reactive, ref, watch, nextTick, validScale, maxScore, scoreError, AbortController, onMounted() {}, onBeforeUnmount() {},
     getUser: () => ({ id: 1, age_group: 'middle_age' }), setUser() {},
     errorMessage: (_, fallback) => fallback, useRouter: () => ({ push() {}, replace() {} }),
     useRoute: () => ({ query: {} }), ...overrides });

@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { computed, reactive, ref, watch, nextTick } from 'vue';
+import { validScale, maxScore, scoreError } from '../src/utils/assessmentScores.js';
 
 function page({ status = {}, fail = false } = {}) {
   const calls = [], saved = [], routes = [];
   const source = readFileSync(new URL('../src/views/Onboarding.vue', import.meta.url), 'utf8')
     .split('<script setup>')[1].split('</script>')[0].replace(/import .*;\r?\n/g, '');
   const context = vm.createContext({
-    computed, reactive, ref, watch, onMounted: () => {},
+    computed, reactive, ref, watch, nextTick, validScale, maxScore, scoreError, onMounted: () => {},
+    document: { getElementById: () => ({ focus() {} }) },
     getUser: () => ({ id: 1, age_group: 'middle_age', height_cm: 170, weight_kg: 65, goal: 'fitness', onboarding_done: false }),
     setUser: user => saved.push(user),
     useRouter: () => ({ push: async route => routes.push(route) }),
